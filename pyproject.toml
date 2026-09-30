@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rostrap"
+dynamic = ["version"]
+description = "A Roblox bootstrapper for Linux that runs the macOS client through rosetta3"
+readme = "README.md"
+requires-python = ">=3.10"
+# PyGObject and GTK 4 come from the Linux distribution; see README.md.
+dependencies = []
+classifiers = [
+    "Environment :: X11 Applications :: GTK",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Games/Entertainment",
+]
+
+[project.scripts]
+rostrap = "rostrap.cli:main"
+
+[tool.setuptools]
+packages = ["rostrap", "rostrap.ui"]
+
+[tool.setuptools.dynamic]
+version = { attr = "rostrap.__version__" }
