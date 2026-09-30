@@ -14,8 +14,7 @@ then works depends on the rosetta3 build you use.
 - Linux on x86-64 or AArch64.
 - rosetta3, built from source as its README describes:
   `cargo build --release --bin rosetta3`, which produces
-  `target/release/rosetta3`. Without access to Microlift, build it with
-  `rosetta3-native/build.sh` instead (see below).
+  `target/release/rosetta3`.
 - SDL3 and a Vulkan driver, which rosetta3 uses at run time: it loads
   `libSDL3.so.0` for windows, and its Metal is backed by Vulkan.
 - Python 3.10 or newer.
@@ -200,39 +199,6 @@ To build the same files locally (the `build` package is needed):
 ```sh
 python3 scripts/build_nightly.py --version 0.1.0.dev1 --out dist
 ```
-
-## Building rosetta3 without Microlift
-
-rosetta3 depends on Microlift, its x86-64 recompiler, which is a private Git
-repository. Native execution does not use it: a Mach-O slice for this
-machine's CPU runs directly, and the x86_64 Roblox build is one on an x86-64
-PC. `rosetta3-native/build.sh` builds rosetta3 against
-`rosetta3-native/microlift-stub`, a stand-in crate with the parts of
-Microlift's API that rosetta3 names:
-
-```sh
-rosetta3-native/build.sh ~/src/rosetta3
-```
-
-The script exports the checkout's HEAD to
-`~/.cache/rostrap/rosetta3-native/tree`, so the checkout itself is not changed,
-adds a Cargo `[patch]` that replaces Microlift with the stand-in, and builds
-with the checkout's `Cargo.lock`. The binary is copied to
-`~/.cache/rostrap/rosetta3-native/rosetta3`; choose it on the rosetta3 page of
-the settings. It needs Rust 1.96 or newer and, on Debian and Ubuntu,
-`libcurl4-openssl-dev` and `zlib1g-dev`.
-
-A rosetta3 built this way cannot emulate: running an x86_64 program on an
-AArch64 machine stops with "this rosetta3 was built without Microlift". The
-stand-in implements what a native run reaches (the register context, the
-per-thread link tables, SysV argument placement, x86-64 disassembly) and
-reports everything that lifts or compiles x86-64 code as unavailable.
-
-Built this way from rosetta3 995f0b1 on an x86-64 Ubuntu 24.04 machine, with
-SDL3 3.4.16 built from source and Mesa's Vulkan driver, rosetta3 ran the
-x86_64 Roblox client 0.741.0.7411056 natively under Xvfb: rostrap started it
-with a `roblox-player:` link, Roblox's app delegate received the link, and the
-client drew its sign-in screen.
 
 ## Development
 

@@ -3,5 +3,3 @@ __pycache__/
 /build/
 /dist/
 *.egg-info/
-/rosetta3-native/microlift-stub/target/
-/rosetta3-native/microlift-stub/Cargo.lock
