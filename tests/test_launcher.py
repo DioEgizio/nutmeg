@@ -104,7 +104,7 @@ class LaunchTests(Sandbox):
         self.assertIn(f"/b/mac/{GUID_A}-RobloxPlayer.zip", self.server.requests)
         self.assertEqual(list(paths.downloads_dir().iterdir()), [])
         self.assertIsNone(launched.process.poll())
-        log = launched.log.read_text()
+        log = self.wait_for_text(launched.log, "guest output")
         self.assertIn("guest output", log)
         self.assertIn("running: ", log)
         self.assertIn("gameinfo:<hidden>", log)

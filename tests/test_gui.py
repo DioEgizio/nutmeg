@@ -35,6 +35,20 @@ if HAVE_DISPLAY:
     from rostrap.ui.settings_window import SettingsWindow
 
 
+_APPLICATION = None
+
+
+def shared_application():
+    """One registered application for every test, as rostrap has one per
+    process: on a desktop session bus, a second registration of the same
+    application ID in one process is refused."""
+    global _APPLICATION
+    if _APPLICATION is None:
+        _APPLICATION = Application("settings", None)
+        _APPLICATION.register(None)
+    return _APPLICATION
+
+
 def pump(until, timeout: float = 20.0) -> bool:
     """Run the main loop until `until()` is true."""
     context = GLib.MainContext.default()
@@ -116,8 +130,7 @@ def screenshot(window, name: str) -> None:
 class WindowTests(Sandbox):
     def setUp(self) -> None:
         super().setUp()
-        self.app = Application("settings", None)
-        self.app.register(None)
+        self.app = shared_application()
         self.addCleanup(self.close_all)
 
     def close_all(self) -> None:

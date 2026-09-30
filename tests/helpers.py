@@ -15,6 +15,7 @@ import sys
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -112,7 +113,7 @@ FAKE_ROSETTA3 = textwrap.dedent(
     record = os.environ.get("FAKE_ROSETTA3_RECORD")
     if args[:2] == ["prefix", "create"]:
         if os.environ.get("FAKE_ROSETTA3_PREFIX_FAIL"):
-            print("rosetta3: prefix: could not download the base")
+            print("rosetta3: prefix: could not download the base", flush=True)
             sys.exit(1)
         directory = args[2]
         os.makedirs(os.path.join(directory, "root", "Applications"), exist_ok=True)
@@ -124,16 +125,16 @@ FAKE_ROSETTA3 = textwrap.dedent(
             f.write("\\n".join(lines) + "\\n")
         with open(record + ".prefix", "w") as f:
             json.dump({{"argv": args, "setup": os.environ.get("ROSETTA3_PREFIX_SETUP")}}, f)
-        print("created " + directory)
+        print("created " + directory, flush=True)
         sys.exit(0)
     if args[:2] == ["prefix", "repair"]:
-        print("nothing to repair")
+        print("nothing to repair", flush=True)
         sys.exit(0)
     if args[:1] == ["run"]:
         env = {{k: v for k, v in os.environ.items() if k.startswith("ROSETTA3_")}}
         with open(record, "w") as f:
             json.dump({{"argv": args, "env": env, "cwd": os.getcwd()}}, f)
-        print("guest output")
+        print("guest output", flush=True)
         code = int(os.environ.get("FAKE_ROSETTA3_EXIT", "-1"))
         if code >= 0:
             sys.exit(code)
@@ -175,5 +176,24 @@ class Sandbox(unittest.TestCase):
         os.environ["FAKE_ROSETTA3_RECORD"] = str(self.root / "record.json")
         return path
 
-    def record(self) -> dict:
-        return json.loads((self.root / "record.json").read_text())
+    def record(self, timeout: float = 10.0) -> dict:
+        """What the fake rosetta3 recorded about its `run`. The process writes
+        it a moment after starting, so this waits for it."""
+        path = self.root / "record.json"
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                return json.loads(path.read_text())
+            except (FileNotFoundError, ValueError):
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.05)
+
+    def wait_for_text(self, path: Path, text: str, timeout: float = 10.0) -> str:
+        """The contents of `path` once they include `text`."""
+        deadline = time.monotonic() + timeout
+        while True:
+            contents = path.read_text()
+            if text in contents or time.monotonic() > deadline:
+                return contents
+            time.sleep(0.05)
