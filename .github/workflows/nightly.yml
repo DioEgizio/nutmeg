@@ -1,0 +1,136 @@
+name: Nightly
+
+# Builds the default branch every night and publishes it as a pre-release,
+# but only when it has commits that are not in a nightly release yet.
+on:
+  schedule:
+    # 23:41 UTC every day. Off the hour, because GitHub delays scheduled runs
+    # most at the start of each hour.
+    - cron: "41 23 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build even if the newest commit already has a nightly release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Look for commits without a nightly release
+        id: check
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          released=$(git tag --points-at "$sha" --list 'nightly-*')
+          if [ -n "$released" ] && [ "$FORCE" != "true" ]; then
+            echo "$sha is already in $released; nothing new to build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  nightly:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      SHA: ${{ needs.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The system Python is used throughout, because PyGObject comes from
+      # the distribution and is built for it.
+      - name: Install GTK 4 and the test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-gi python3-venv gir1.2-gtk-4.0 xvfb xauth xdg-utils desktop-file-utils
+
+      - name: Test
+        run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
+
+      - name: Name the build
+        id: name
+        run: |
+          stamp=$(date -u +%Y%m%d%H%M)
+          base=$(/usr/bin/python3 -c 'import rostrap; print(rostrap.__version__)')
+          {
+            echo "version=${base}.dev${stamp}"
+            echo "tag=nightly-${stamp:0:8}-${stamp:8:4}"
+            echo "title=Nightly ${stamp:0:4}-${stamp:4:2}-${stamp:6:2} (${SHA:0:7})"
+            echo "when=${stamp:0:4}-${stamp:4:2}-${stamp:6:2} ${stamp:8:2}:${stamp:10:2} UTC"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.name.outputs.version }}
+        run: |
+          /usr/bin/python3 -m venv "$RUNNER_TEMP/build-env"
+          "$RUNNER_TEMP/build-env/bin/pip" install --quiet build
+          "$RUNNER_TEMP/build-env/bin/python" scripts/build_nightly.py --version "$VERSION" --out dist
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ steps.name.outputs.version }}
+          TAG: ${{ steps.name.outputs.tag }}
+          TITLE: ${{ steps.name.outputs.title }}
+          WHEN: ${{ steps.name.outputs.when }}
+        run: |
+          previous=$(git describe --tags --match 'nightly-*' --abbrev=0 "$SHA" 2>/dev/null || true)
+          {
+            echo "Automatic pre-release of ${SHA:0:7} on \`$BRANCH\`, built $WHEN."
+            echo
+            if [ -n "$previous" ] && [ -z "$(git rev-list "$previous..$SHA")" ]; then
+              echo "No commits since $previous; this build was started by hand with \`force\`."
+            elif [ -n "$previous" ]; then
+              echo "Changes since $previous:"
+              echo
+              git log --format='- %h %s' "$previous..$SHA"
+            else
+              echo "Commits in this build:"
+              echo
+              git log --format='- %h %s' -n 50 "$SHA"
+            fi
+            echo
+            echo "Files:"
+            echo
+            echo "- \`rostrap-$VERSION.pyz\`: run with \`python3 rostrap-$VERSION.pyz\`. PyGObject and GTK 4 come from your distribution, as the README describes."
+            echo "- \`rostrap-$VERSION-py3-none-any.whl\`: install with \`pipx install --system-site-packages ./rostrap-$VERSION-py3-none-any.whl\`."
+            echo "- \`rostrap-$VERSION.tar.gz\`: the source."
+            echo "- \`SHA256SUMS\`: checksums of the files above."
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" dist/* \
+            --prerelease \
+            --target "$SHA" \
+            --title "$TITLE" \
+            --notes-file "$RUNNER_TEMP/notes.md"

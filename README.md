@@ -39,6 +39,13 @@ PyGObject:
 pipx install --system-site-packages .
 ```
 
+Nightly builds are on the Releases page, marked as pre-releases. The `.pyz`
+file there runs as it is, with the system's Python and PyGObject:
+
+```sh
+python3 rostrap-0.1.0.dev202609302341.pyz
+```
+
 ## Setting up
 
 1. Run `rostrap` (or `python3 -m rostrap`) to open the settings.
@@ -168,6 +175,28 @@ it applies.
 
 Each path follows the matching `XDG_*_HOME` variable when it is set. The logs
 hide the authentication ticket in `roblox-player:` links; the last 20 are kept.
+
+## Nightly builds
+
+`.github/workflows/nightly.yml` runs every day at 23:41 UTC. If the default
+branch has commits that are not in a nightly release yet, it runs the test
+suite under Xvfb, builds the release files with `scripts/build_nightly.py`,
+and publishes them on the Releases page as a pre-release. A day without new
+commits publishes nothing.
+
+Each nightly has a wheel, a source archive, a `.pyz` and `SHA256SUMS`. Its
+version is the one in `rostrap/__init__.py` followed by `.devYYYYMMDDHHMM`, and
+its tag is `nightly-YYYYMMDD-HHMM`, both from the build time in UTC. The notes
+list the commits since the previous nightly.
+
+The workflow can also be started from the Actions tab. Its `force` option
+builds even when the newest commit already has a nightly.
+
+To build the same files locally (the `build` package is needed):
+
+```sh
+python3 scripts/build_nightly.py --version 0.1.0.dev1 --out dist
+```
 
 ## Development
 
