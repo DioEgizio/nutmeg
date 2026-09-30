@@ -4,6 +4,7 @@ each window is also saved there as a PNG."""
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import unittest
@@ -70,6 +71,21 @@ def buttons(widget) -> list:
     return found
 
 
+def find_all(widget, kind) -> list:
+    found = []
+    child = widget.get_first_child()
+    while child is not None:
+        if isinstance(child, kind):
+            found.append(child)
+        found.extend(find_all(child, kind))
+        child = child.get_next_sibling()
+    return found
+
+
+def find(widget, kind):
+    return find_all(widget, kind)[0]
+
+
 def click(window, label: str) -> None:
     for button in buttons(window):
         if button.get_label() == label:
@@ -118,7 +134,11 @@ class WindowTests(Sandbox):
             stack.set_visible_child_name(name)
             screenshot(window, f"settings-{name}")
         window._swap.set("0")
-        window._flags_view.get_buffer().set_text('{"FIntTargetRefreshRate": 144}')
+        click(window, "Add Flag")
+        row = window._flags.rows()[-1]
+        row.name.set_text("FIntTargetRefreshRate")
+        self.assertEqual(row.kind_name(), "int")
+        row.entry.set_text("144")
         window._env_view.get_buffer().set_text("# comment\nRUST_BACKTRACE=1\n")
         click(window, "Save")
         saved = config_module.load()
@@ -148,16 +168,108 @@ class WindowTests(Sandbox):
         click(window, "Save")
         self.assertEqual(config_module.load(), Config())
 
-    def test_bad_fast_flags_are_reported(self):
+    def test_flag_rows_types_and_errors(self):
         window = SettingsWindow(self.app)
         window.present()
         window._stack.set_visible_child_name("flags")
-        window._flags_view.get_buffer().set_text("[1, 2]")
-        self.assertIn("must be a JSON object", window._flags_state.get_text())
-        click(window, "Save")
-        self.assertIn("must be a JSON object", window._message.get_text())
+        editor = window._flags
+
+        click(window, "Add Flag")
+        flag = editor.rows()[-1]
+        flag.name.set_text("FFlagExample")
+        self.assertEqual(flag.kind_name(), "bool")
+        flag.switch.set_active(True)
+
+        click(window, "Add Flag")
+        number = editor.rows()[-1]
+        number.name.set_text("FIntExample")
+        number.entry.set_text("abc")
+        self.assertIn("FIntExample needs a whole number", editor._state.get_text())
         screenshot(window, "settings-flags-error")
+        click(window, "Save")
+        self.assertIn("FIntExample needs a whole number", window._message.get_text())
         self.assertFalse(paths.config_file().exists())
+        number.entry.set_text("-60")
+        click(window, "Save")
+        self.assertEqual(config_module.load().fast_flags, {"FFlagExample": True, "FIntExample": -60})
+        self.assertEqual(editor._state.get_text(), "2 flags.")
+
+        # A type chosen by hand is kept when the name changes, and the value
+        # carries over.
+        number.kind.set_selected(2)
+        self.assertEqual(number.kind_name(), "string")
+        number.name.set_text("FFlagRenamed")
+        self.assertEqual(number.kind_name(), "string")
+        self.assertEqual(editor.get_flags()["FFlagRenamed"], "-60")
+        # Switching a Boolean to text shows its value as text.
+        flag.kind.set_selected(3)
+        self.assertEqual(flag.entry.get_text(), "true")
+        self.assertEqual(editor.get_flags()["FFlagExample"], True)
+
+        click(window, "Add Flag")
+        editor.rows()[-1].name.set_text("FFlagRenamed")
+        self.assertIn("FFlagRenamed is listed twice", editor._state.get_text())
+        click(editor.rows()[-1].widget, "Remove")
+        self.assertEqual(len(editor.rows()), 2)
+        click(window, "Add Flag")
+        self.assertIn("row 3 has no name", editor._state.get_text())
+        click(editor.rows()[-1].widget, "Remove")
+        screenshot(window, "settings-flags")
+
+    def test_flags_of_any_json_type_survive(self):
+        window = SettingsWindow(self.app)
+        flags = {"A": 1.5, "B": None, "C": [1, 2], "D": {"x": "y"}, "E": "True", "F": -3, "G": False, "H": ""}
+        window._flags.set_flags(flags)
+        self.assertEqual(list(window._flags.get_flags().items()), list(flags.items()))
+        self.assertEqual(
+            [row.kind_name() for row in window._flags.rows()],
+            ["json", "json", "json", "json", "string", "int", "bool", "string"],
+        )
+
+    def test_import_search_and_copy(self):
+        window = SettingsWindow(self.app)
+        window.present()
+        window._stack.set_visible_child_name("flags")
+        editor = window._flags
+        editor.set_flags({"FIntOne": 1, "FFlagTwo": True})
+
+        def import_text(text: str, button: str) -> None:
+            click(window, "Import JSON…")
+            self.assertTrue(pump(lambda: dialog_titled("Import FastFlags") is not None))
+            dialog = dialog_titled("Import FastFlags")
+            find(dialog, Gtk.TextView).get_buffer().set_text(text)
+            screenshot(dialog, "flags-import")
+            click(dialog, button)
+
+        import_text('{"FIntOne": 2, "FStringThree": "x"}', "Add to List")
+        self.assertTrue(pump(lambda: len(editor.rows()) == 3))
+        self.assertEqual(editor.get_flags(), {"FIntOne": 2, "FFlagTwo": True, "FStringThree": "x"})
+
+        import_text("[1, 2]", "Add to List")
+        self.assertTrue(pump(lambda: dialog_titled("Import FastFlags") is not None))
+        again = dialog_titled("Import FastFlags")
+        self.assertEqual(find(again, Gtk.TextView).get_buffer().get_property("text"), "[1, 2]")
+        self.assertTrue(any("must be a JSON object" in (label.get_text() or "") for label in find_all(again, Gtk.Label)))
+        click(again, "Cancel")
+        self.assertTrue(pump(lambda: dialog_titled("Import FastFlags") is None))
+        self.assertEqual(len(editor.rows()), 3)
+
+        editor._search.set_text("fint")
+        self.assertTrue(pump(lambda: [r.widget.get_child_visible() for r in editor.rows()] == [True, False, False]))
+        editor._search.set_text("")
+        self.assertTrue(pump(lambda: all(r.widget.get_child_visible() for r in editor.rows())))
+
+        copied = editor.copy_json()
+        self.assertEqual(json.loads(copied), editor.get_flags())
+        result = []
+        clipboard = editor.get_clipboard()
+        clipboard.read_text_async(None, lambda source, task: result.append(source.read_text_finish(task)))
+        self.assertTrue(pump(lambda: result))
+        self.assertEqual(result[0], copied)
+
+        import_text('{"Only": 1}', "Replace List")
+        self.assertTrue(pump(lambda: len(editor.rows()) == 1))
+        self.assertEqual(editor.get_flags(), {"Only": 1})
 
     def test_launch_window_runs_a_launch(self):
         server = Server()

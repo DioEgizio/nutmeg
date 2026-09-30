@@ -136,6 +136,26 @@ these variables from the environment it inherits, so the settings are the only
 place they come from. Any other variable can be added under "Extra environment
 variables".
 
+## FastFlags
+
+The FastFlags page of the settings lists one flag per row: its name, its type
+(Boolean, Integer, String, or JSON for any other value) and its value. Add Flag
+adds a row. While you type a new flag's name, its type follows the prefix:
+`FFlag`, `DFFlag` and `SFFlag` are Boolean, `FInt` and `DFInt` are Integer,
+`FString` and `DFString` are String. Choosing a type yourself stops that.
+
+Import JSON takes a JSON object of flags, pasted or loaded from a file, and
+either adds it to the list (replacing the values of flags already listed) or
+replaces the list. Copy as JSON puts the list on the clipboard. The search box
+filters the rows by name.
+
+Save refuses a list with an empty name, a name listed twice, or a value that
+does not fit its type, and says which flag is wrong. The flags are stored in
+`config.json` as a JSON object, and rostrap writes that object to
+`Roblox.app/Contents/MacOS/ClientSettings/ClientAppSettings.json` before each
+launch, or removes the file when the list is empty. Roblox decides which flags
+it applies.
+
 ## Files
 
 | Path | Contents |

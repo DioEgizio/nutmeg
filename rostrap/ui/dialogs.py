@@ -17,12 +17,17 @@ def choose(
     choices: list[tuple[str, str]],
     on_answer: Callable[[Optional[str]], None],
     detail: Optional[str] = None,
+    extra: Optional[Gtk.Widget] = None,
+    focus: Optional[Gtk.Widget] = None,
 ) -> Gtk.Window:
     """Show `message` with a button per (id, label) in `choices`, suggested one
     first. `on_answer` gets the id clicked, or None if the window was closed
-    another way. `detail`, if given, is shown in a scrollable monospace box."""
-    window = Gtk.Window(title=title, modal=True, resizable=detail is not None)
-    window.set_default_size(520 if detail else 440, -1)
+    another way. `detail`, if given, is shown in a scrollable monospace box;
+    `extra`, if given, is placed above the buttons. `focus` is the widget that
+    starts with the keyboard focus, the suggested button by default."""
+    large = detail is not None or extra is not None
+    window = Gtk.Window(title=title, modal=True, resizable=large)
+    window.set_default_size(520 if large else 440, -1)
     finished = False
     parent_handler = 0
 
@@ -63,9 +68,10 @@ def choose(
     heading = Gtk.Label(xalign=0, wrap=True)
     heading.set_markup(f"<b><big>{GLib.markup_escape_text(title)}</big></b>")
     box.append(heading)
-    body = Gtk.Label(label=message, xalign=0, wrap=True, selectable=True)
-    body.set_max_width_chars(64)
-    box.append(body)
+    if message:
+        body = Gtk.Label(label=message, xalign=0, wrap=True, selectable=True)
+        body.set_max_width_chars(64)
+        box.append(body)
     if detail is not None:
         view = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
         view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -73,6 +79,8 @@ def choose(
         scroller = Gtk.ScrolledWindow(child=view, vexpand=True)
         scroller.set_min_content_height(200)
         box.append(scroller)
+    if extra is not None:
+        box.append(extra)
     buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
     buttons.set_margin_top(8)
     first = None
@@ -106,7 +114,8 @@ def choose(
     window.connect("unrealize", lambda _w: finish(None))
     if first is not None:
         window.set_default_widget(first)
-        window.set_focus(first)
+    if focus is not None or first is not None:
+        window.set_focus(focus or first)
     window.present()
     return window
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import threading
 from pathlib import Path
@@ -16,6 +15,7 @@ from ..config import Config, ConfigError
 from ..errors import Cancelled, RostrapError
 from ..launcher import install_lock
 from . import dialogs
+from .flag_editor import FlagEditor
 from .launch_window import LaunchWindow
 
 
@@ -38,18 +38,6 @@ def parse_env(text: str) -> dict[str, str]:
 
 def format_env(env: dict[str, str]) -> str:
     return "".join(f"{name}={value}\n" for name, value in env.items())
-
-
-def parse_fast_flags(text: str) -> dict:
-    if not text.strip():
-        return {}
-    try:
-        value = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ConfigError(f"FastFlags: not valid JSON ({e})") from e
-    if not isinstance(value, dict):
-        raise ConfigError("FastFlags: must be a JSON object, such as {\"FlagName\": true}")
-    return value
 
 
 class Choice:
@@ -344,23 +332,21 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
 
     def _flags_page(self) -> Gtk.Widget:
-        self._flags_view, flags_box = _text_view(260)
-        flags_box.set_vexpand(True)
-        self._flags_state = _label("")
-        self._flags_view.get_buffer().connect("changed", lambda _b: self._check_flags())
-        format_button = Gtk.Button(label="Format")
-        format_button.connect("clicked", lambda _b: self._format_flags())
-        return _page(
+        self._flags = FlagEditor()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        _margins(box, 18)
+        box.append(
             _label(
                 "FastFlags are written to Roblox.app/Contents/MacOS/ClientSettings/"
-                "ClientAppSettings.json before each launch, as a JSON object. Roblox decides "
-                "which flags it applies.",
+                "ClientAppSettings.json before each launch. Roblox decides which flags it "
+                "applies. A new flag's type follows its name prefix (FFlag, FInt, FString) "
+                "until you choose one.",
                 dim=True,
-            ),
-            flags_box,
-            self._flags_state,
-            _buttons(format_button),
+            )
         )
+        self._flags.set_vexpand(True)
+        box.append(self._flags)
+        return box
 
     def _integration_page(self) -> Gtk.Widget:
         self._entries_state = _label("")
@@ -409,8 +395,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._dead_flags.set_active(config.dead_flags)
         self._call_return.set_active(config.call_return)
         self._env_view.get_buffer().set_text(format_env(config.extra_env))
-        flags = json.dumps(config.fast_flags, indent=2) if config.fast_flags else ""
-        self._flags_view.get_buffer().set_text(flags)
+        self._flags.set_flags(config.fast_flags)
 
     def _gather(self) -> Config:
         config = Config(
@@ -426,7 +411,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             dead_flags=self._dead_flags.get_active(),
             call_return=self._call_return.get_active(),
             extra_env=parse_env(_text_of(self._env_view)),
-            fast_flags=parse_fast_flags(_text_of(self._flags_view)),
+            fast_flags=self._flags.get_flags(),
         )
         config.validate()
         if rosetta.host_arch() is not None:
@@ -711,21 +696,3 @@ class SettingsWindow(Gtk.ApplicationWindow):
         problem = dialogs.open_path(directory)
         if problem is not None:
             dialogs.inform(self, "Could not open the logs folder", problem)
-
-    def _check_flags(self) -> None:
-        try:
-            flags = parse_fast_flags(_text_of(self._flags_view))
-        except ConfigError as e:
-            self._flags_state.set_text(str(e))
-            self._flags_state.add_css_class("error")
-            return
-        self._flags_state.remove_css_class("error")
-        count = len(flags)
-        self._flags_state.set_text("No FastFlags." if count == 0 else f"{count} flag(s).")
-
-    def _format_flags(self) -> None:
-        try:
-            flags = parse_fast_flags(_text_of(self._flags_view))
-        except ConfigError:
-            return
-        self._flags_view.get_buffer().set_text(json.dumps(flags, indent=2) if flags else "")

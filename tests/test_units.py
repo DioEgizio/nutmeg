@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from rostrap import config as config_module
-from rostrap import paths, processes, protocol, roblox, rosetta
+from rostrap import fastflags, paths, processes, protocol, roblox, rosetta
 from rostrap.config import Config, ConfigError
 from rostrap.errors import RostrapError
 
@@ -44,6 +44,49 @@ class ProtocolTests(unittest.TestCase):
         for url in ("https://roblox.com", "roblox-player:", "file:///etc/passwd", "", "roblox", "roblox-player:1\n2"):
             with self.assertRaises(protocol.InvalidURL):
                 protocol.check(url)
+
+
+class FastFlagTests(unittest.TestCase):
+    def test_kinds(self):
+        self.assertEqual(
+            [fastflags.kind_of(v) for v in (True, 144, "x", 1.5, None, [1], {"a": 1})],
+            ["bool", "int", "string", "json", "json", "json", "json"],
+        )
+        self.assertEqual(
+            [fastflags.kind_for_name(n) for n in ("FFlagX", "DFFlagX", "SFFlagX", "FIntX", "DFIntX", "FStringX", "DFStringX")],
+            ["bool", "bool", "bool", "int", "int", "string", "string"],
+        )
+        for name in ("FFlag", "FLogX", "Other", ""):
+            self.assertIsNone(fastflags.kind_for_name(name))
+
+    def test_values(self):
+        self.assertEqual(fastflags.value_of("int", " -42 ", False), -42)
+        self.assertIs(fastflags.value_of("bool", "ignored", True), True)
+        self.assertEqual(fastflags.value_of("string", " spaced ", False), " spaced ")
+        self.assertEqual(fastflags.value_of("json", '{"a": [1, null]}', False), {"a": [1, None]})
+        for kind, text in (("int", "1.5"), ("int", "1_000"), ("int", ""), ("json", "{"), ("json", "")):
+            with self.subTest(kind=kind, text=text), self.assertRaises(ValueError):
+                fastflags.value_of(kind, text, False)
+        for value in (True, 7, "s", 2.5, None, [1, "x"], {"k": False}):
+            kind = fastflags.kind_of(value)
+            self.assertEqual(fastflags.value_of(kind, fastflags.text_of(value), bool(value)), value)
+
+    def test_collect(self):
+        rows = [("  FFlagA ", "bool", "", True), ("FIntB", "int", "60", False)]
+        self.assertEqual(fastflags.collect(rows), {"FFlagA": True, "FIntB": 60})
+        with self.assertRaisesRegex(ConfigError, "row 2 has no name"):
+            fastflags.collect([("A", "bool", "", True), (" ", "bool", "", True)])
+        with self.assertRaisesRegex(ConfigError, "A is listed twice"):
+            fastflags.collect([("A", "bool", "", True), ("A ", "int", "1", False)])
+        with self.assertRaisesRegex(ConfigError, "FIntB needs a whole number"):
+            fastflags.collect([("FIntB", "int", "sixty", False)])
+
+    def test_parse_object(self):
+        self.assertEqual(fastflags.parse_object("  "), {})
+        self.assertEqual(fastflags.parse_object('{"A": 1, "B": true}'), {"A": 1, "B": True})
+        for text in ("[1]", '"x"', "{"):
+            with self.assertRaises(ConfigError):
+                fastflags.parse_object(text)
 
 
 class ConfigTests(Sandbox):
