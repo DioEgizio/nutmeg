@@ -1,5 +1,5 @@
 """Test fixtures: a scratch XDG home, fake Roblox archives, a local web server
-standing in for Roblox's endpoints, and a fake rosetta3."""
+standing in for Roblox's endpoints, and a fake rosemary."""
 
 from __future__ import annotations
 
@@ -103,39 +103,39 @@ class Server:
                 self.routes[f"/{host}/{folder}/{guid}-RobloxPlayer.zip"] = data
 
 
-FAKE_ROSETTA3 = textwrap.dedent(
+FAKE_ROSEMARY = textwrap.dedent(
     """\
     #!{python}
-    # Stands in for rosetta3: `prefix create` makes the state file nutmeg looks
+    # Stands in for rosemary: `prefix create` makes the state file nutmeg looks
     # for, and `run` records how it was started, then waits or fails as asked.
     import json, os, sys, time
     args = sys.argv[1:]
-    record = os.environ.get("FAKE_ROSETTA3_RECORD")
+    record = os.environ.get("FAKE_ROSEMARY_RECORD")
     if args[:2] == ["prefix", "create"]:
-        if os.environ.get("FAKE_ROSETTA3_PREFIX_FAIL"):
-            print("rosetta3: prefix: could not download the base", flush=True)
+        if os.environ.get("FAKE_ROSEMARY_PREFIX_FAIL"):
+            print("rosemary: prefix: could not download the base", flush=True)
             sys.exit(1)
         directory = args[2]
         os.makedirs(os.path.join(directory, "root", "Applications"), exist_ok=True)
-        os.makedirs(os.path.join(directory, ".rosetta3"), exist_ok=True)
+        os.makedirs(os.path.join(directory, ".rosemary"), exist_ok=True)
         lines = ["version: 1", "created_with:", '  runtime_version: "0.1.0"']
         if "--arch" in args:
             lines += ["base:", '  project: "minidarwin"', '  arch: "%s"' % args[args.index("--arch") + 1]]
-        with open(os.path.join(directory, ".rosetta3", "state.yaml"), "w") as f:
+        with open(os.path.join(directory, ".rosemary", "state.yaml"), "w") as f:
             f.write("\\n".join(lines) + "\\n")
         with open(record + ".prefix", "w") as f:
-            json.dump({{"argv": args, "setup": os.environ.get("ROSETTA3_PREFIX_SETUP")}}, f)
+            json.dump({{"argv": args, "setup": os.environ.get("ROSEMARY_PREFIX_SETUP")}}, f)
         print("created " + directory, flush=True)
         sys.exit(0)
     if args[:2] == ["prefix", "repair"]:
         print("nothing to repair", flush=True)
         sys.exit(0)
     if args[:1] == ["run"]:
-        env = {{k: v for k, v in os.environ.items() if k.startswith("ROSETTA3_")}}
+        env = {{k: v for k, v in os.environ.items() if k.startswith("ROSEMARY_")}}
         with open(record, "w") as f:
             json.dump({{"argv": args, "env": env, "cwd": os.getcwd()}}, f)
         print("guest output", flush=True)
-        code = int(os.environ.get("FAKE_ROSETTA3_EXIT", "-1"))
+        code = int(os.environ.get("FAKE_ROSEMARY_EXIT", "-1"))
         if code >= 0:
             sys.exit(code)
         time.sleep(60)
@@ -159,7 +159,7 @@ class Sandbox(unittest.TestCase):
             ("XDG_STATE_HOME", "state"),
         ):
             os.environ[variable] = str(self.root / name)
-        for name in ("ROSETTA3_PREFIX", "ROSETTA3_DEAD_FLAGS", "FAKE_ROSETTA3_EXIT", "FAKE_ROSETTA3_PREFIX_FAIL"):
+        for name in ("ROSEMARY_PREFIX", "ROSEMARY_DEAD_FLAGS", "FAKE_ROSEMARY_EXIT", "FAKE_ROSEMARY_PREFIX_FAIL"):
             os.environ.pop(name, None)
         (self.root / "home").mkdir()
 
@@ -168,16 +168,16 @@ class Sandbox(unittest.TestCase):
         os.environ.update(self._saved_env)
         shutil.rmtree(self.root, ignore_errors=True)
 
-    def fake_rosetta3(self) -> Path:
-        path = self.root / "bin" / "rosetta3"
+    def fake_rosemary(self) -> Path:
+        path = self.root / "bin" / "rosemary"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(FAKE_ROSETTA3.format(python=sys.executable))
+        path.write_text(FAKE_ROSEMARY.format(python=sys.executable))
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
-        os.environ["FAKE_ROSETTA3_RECORD"] = str(self.root / "record.json")
+        os.environ["FAKE_ROSEMARY_RECORD"] = str(self.root / "record.json")
         return path
 
     def record(self, timeout: float = 10.0) -> dict:
-        """What the fake rosetta3 recorded about its `run`. The process writes
+        """What the fake rosemary recorded about its `run`. The process writes
         it a moment after starting, so this waits for it."""
         path = self.root / "record.json"
         deadline = time.monotonic() + timeout

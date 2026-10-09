@@ -1,4 +1,4 @@
-"""Tests of the pieces that do not need the network, a display or rosetta3."""
+"""Tests of the pieces that do not need the network, a display or rosemary."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import config as config_module
-from nutmeg import fastflags, paths, processes, protocol, roblox, rosetta
+from nutmeg import fastflags, paths, processes, protocol, roblox, rosemary
 from nutmeg.config import Config, ConfigError
 from nutmeg.errors import NutmegError
 
@@ -96,7 +96,7 @@ class ConfigTests(Sandbox):
 
     def test_round_trip(self):
         config = Config(
-            rosetta3_path="/opt/rosetta3/target/release/rosetta3",
+            rosemary_path="/opt/rosemary/target/release/rosemary",
             prefix_path="~/prefixes/roblox",
             architecture="x86_64",
             swap_interval="0",
@@ -115,7 +115,7 @@ class ConfigTests(Sandbox):
             {"swap_interval": "2"},
             {"menu_ctrl": "yes"},
             {"prefix_path": "relative/prefix"},
-            {"extra_env": {"ROSETTA3_PREFIX": "/x"}},
+            {"extra_env": {"ROSEMARY_PREFIX": "/x"}},
             {"extra_env": {"1BAD": "x"}},
             {"extra_env": {"GOOD": 1}},
             {"fast_flags": [1, 2]},
@@ -258,31 +258,31 @@ class InstallTests(Sandbox):
         self.assertEqual(len(x86), len(roblox.CDN_HOSTS))
 
 
-class RosettaTests(Sandbox):
+class RosemaryTests(Sandbox):
     def test_base_arch_from_state_file(self):
         prefix = self.root / "prefix"
-        (prefix / ".rosetta3").mkdir(parents=True)
-        state = prefix / ".rosetta3/state.yaml"
-        self.assertFalse(rosetta.prefix_created(prefix))
+        (prefix / ".rosemary").mkdir(parents=True)
+        state = prefix / ".rosemary/state.yaml"
+        self.assertFalse(rosemary.prefix_created(prefix))
         state.write_text('version: 1\ncreated_with:\n  runtime_version: "0.1.0"\n')
-        self.assertTrue(rosetta.prefix_created(prefix))
-        self.assertIsNone(rosetta.prefix_base_arch(prefix))
-        # The shape rosetta3's State::render writes.
+        self.assertTrue(rosemary.prefix_created(prefix))
+        self.assertIsNone(rosemary.prefix_base_arch(prefix))
+        # The shape rosemary's State::render writes.
         state.write_text(
-            '# Written by `rosetta3 prefix`. See docs/prefixes.md.\nversion: 1\ncreated_with:\n'
+            '# Written by `rosemary prefix`. See docs/prefixes.md.\nversion: 1\ncreated_with:\n'
             '  runtime_version: "0.1.0"\nbase:\n  project: "minidarwin"\n  arch: "aarch64"\n'
             '  sequence: 9\n  tag: "v9.0.0"\naccepted_sequence: 9\n'
         )
-        self.assertEqual(rosetta.prefix_base_arch(prefix), "aarch64")
+        self.assertEqual(rosemary.prefix_base_arch(prefix), "aarch64")
         state.write_text("base:\n  arch: x86_64\n")
-        self.assertEqual(rosetta.prefix_base_arch(prefix), "x86_64")
+        self.assertEqual(rosemary.prefix_base_arch(prefix), "x86_64")
 
     def test_environment(self):
-        inherited = {"ROSETTA3_DEAD_FLAGS": "1", "ROSETTA3_PREFIX": "/elsewhere", "PATH": "/bin", "ROSETTA3_OBJC": "builtin"}
-        env = rosetta.run_env(Config(), inherited)
-        self.assertNotIn("ROSETTA3_DEAD_FLAGS", env)
-        self.assertEqual(env["ROSETTA3_PREFIX"], str(paths.default_prefix()))
-        self.assertEqual(env["ROSETTA3_OBJC"], "builtin")
+        inherited = {"ROSEMARY_DEAD_FLAGS": "1", "ROSEMARY_PREFIX": "/elsewhere", "PATH": "/bin", "ROSEMARY_OBJC": "builtin"}
+        env = rosemary.run_env(Config(), inherited)
+        self.assertNotIn("ROSEMARY_DEAD_FLAGS", env)
+        self.assertEqual(env["ROSEMARY_PREFIX"], str(paths.default_prefix()))
+        self.assertEqual(env["ROSEMARY_OBJC"], "builtin")
         self.assertEqual(env["PATH"], "/bin")
         config = Config(
             swap_interval="-1",
@@ -294,77 +294,77 @@ class RosettaTests(Sandbox):
             call_return=True,
             extra_env={"RUST_BACKTRACE": "1"},
         )
-        env = rosetta.run_env(config, {})
+        env = rosemary.run_env(config, {})
         self.assertEqual(
-            {k: v for k, v in env.items() if k != "ROSETTA3_PREFIX"},
+            {k: v for k, v in env.items() if k != "ROSEMARY_PREFIX"},
             {
-                "ROSETTA3_SWAP_INTERVAL": "-1",
-                "ROSETTA3_DECORATIONS": "server",
-                "ROSETTA3_MENU": "strip",
-                "ROSETTA3_MENU_CTRL": "0",
-                "ROSETTA3_CONFINE_POINTER": "1",
-                "ROSETTA3_DEAD_FLAGS": "1",
-                "ROSETTA3_CALL_RETURN": "1",
+                "ROSEMARY_SWAP_INTERVAL": "-1",
+                "ROSEMARY_DECORATIONS": "server",
+                "ROSEMARY_MENU": "strip",
+                "ROSEMARY_MENU_CTRL": "0",
+                "ROSEMARY_CONFINE_POINTER": "1",
+                "ROSEMARY_DEAD_FLAGS": "1",
+                "ROSEMARY_CALL_RETURN": "1",
                 "RUST_BACKTRACE": "1",
             },
         )
 
     def test_command_line(self):
         program = Path("/data/versions/v/Roblox.app/Contents/MacOS/RobloxPlayer")
-        tool = Path("/bin/rosetta3")
-        self.assertEqual(rosetta.run_argv(tool, Config(), program, None), ["/bin/rosetta3", "run", str(program)])
+        tool = Path("/bin/rosemary")
+        self.assertEqual(rosemary.run_argv(tool, Config(), program, None), ["/bin/rosemary", "run", str(program)])
         self.assertEqual(
-            rosetta.run_argv(tool, Config(engine="emulated"), program, "roblox-player:1"),
-            ["/bin/rosetta3", "run", "--emulated", str(program), "-protocolString", "roblox-player:1"],
+            rosemary.run_argv(tool, Config(engine="emulated"), program, "roblox-player:1"),
+            ["/bin/rosemary", "run", "--emulated", str(program), "-protocolString", "roblox-player:1"],
         )
 
     def test_build_choice(self):
-        with mock.patch.object(rosetta, "host_arch", return_value="x86_64"):
-            self.assertEqual(rosetta.build_arch(Config()), "x86_64")
+        with mock.patch.object(rosemary, "host_arch", return_value="x86_64"):
+            self.assertEqual(rosemary.build_arch(Config()), "x86_64")
             with self.assertRaises(NutmegError):
-                rosetta.build_arch(Config(architecture="arm64"))
-        with mock.patch.object(rosetta, "host_arch", return_value="arm64"):
-            self.assertEqual(rosetta.build_arch(Config()), "arm64")
-            self.assertEqual(rosetta.build_arch(Config(architecture="x86_64")), "x86_64")
-            self.assertEqual(rosetta.build_arch(Config(architecture="x86_64", engine="emulated")), "x86_64")
+                rosemary.build_arch(Config(architecture="arm64"))
+        with mock.patch.object(rosemary, "host_arch", return_value="arm64"):
+            self.assertEqual(rosemary.build_arch(Config()), "arm64")
+            self.assertEqual(rosemary.build_arch(Config(architecture="x86_64")), "x86_64")
+            self.assertEqual(rosemary.build_arch(Config(architecture="x86_64", engine="emulated")), "x86_64")
             for bad in (Config(architecture="x86_64", engine="native"), Config(engine="emulated")):
                 with self.assertRaises(NutmegError):
-                    rosetta.build_arch(bad)
-        with mock.patch.object(rosetta, "host_arch", return_value=None):
+                    rosemary.build_arch(bad)
+        with mock.patch.object(rosemary, "host_arch", return_value=None):
             with self.assertRaises(NutmegError):
-                rosetta.build_arch(Config())
+                rosemary.build_arch(Config())
 
-    def test_find_rosetta3(self):
+    def test_find_rosemary(self):
         with mock.patch.dict(os.environ, {"PATH": str(self.root / "nowhere")}):
             with self.assertRaises(NutmegError):
-                rosetta.find_rosetta3(Config())
-            tool = self.fake_rosetta3()
-            self.assertEqual(rosetta.find_rosetta3(Config(rosetta3_path=str(tool))), tool)
+                rosemary.find_rosemary(Config())
+            tool = self.fake_rosemary()
+            self.assertEqual(rosemary.find_rosemary(Config(rosemary_path=str(tool))), tool)
         with mock.patch.dict(os.environ, {"PATH": str(tool.parent)}):
-            self.assertEqual(rosetta.find_rosetta3(Config()), tool)
+            self.assertEqual(rosemary.find_rosemary(Config()), tool)
         with self.assertRaises(NutmegError):
-            rosetta.find_rosetta3(Config(rosetta3_path=str(self.root)))
+            rosemary.find_rosemary(Config(rosemary_path=str(self.root)))
 
     def test_create_prefix(self):
-        tool = self.fake_rosetta3()
+        tool = self.fake_rosemary()
         prefix = self.root / "prefix"
         lines = []
-        rosetta.create_prefix(tool, prefix, "x86_64", lines.append, threading.Event())
-        called = json.loads(Path(os.environ["FAKE_ROSETTA3_RECORD"] + ".prefix").read_text())
+        rosemary.create_prefix(tool, prefix, "x86_64", lines.append, threading.Event())
+        called = json.loads(Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".prefix").read_text())
         self.assertEqual(called["argv"], ["prefix", "create", str(prefix), "--arch", "x86_64"])
         self.assertEqual(called["setup"], "download")
         self.assertEqual(lines, [f"created {prefix}"])
-        self.assertEqual(rosetta.prefix_base_arch(prefix), "x86_64")
+        self.assertEqual(rosemary.prefix_base_arch(prefix), "x86_64")
 
         other = self.root / "other"
-        rosetta.create_prefix(tool, other, None, lines.append, threading.Event())
-        called = json.loads(Path(os.environ["FAKE_ROSETTA3_RECORD"] + ".prefix").read_text())
+        rosemary.create_prefix(tool, other, None, lines.append, threading.Event())
+        called = json.loads(Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".prefix").read_text())
         self.assertEqual(called["argv"], ["prefix", "create", str(other), "--no-base"])
-        self.assertIsNone(rosetta.prefix_base_arch(other))
+        self.assertIsNone(rosemary.prefix_base_arch(other))
 
-        os.environ["FAKE_ROSETTA3_PREFIX_FAIL"] = "1"
+        os.environ["FAKE_ROSEMARY_PREFIX_FAIL"] = "1"
         with self.assertRaisesRegex(NutmegError, "could not download the base"):
-            rosetta.create_prefix(tool, self.root / "third", "x86_64", lines.append, threading.Event())
+            rosemary.create_prefix(tool, self.root / "third", "x86_64", lines.append, threading.Event())
 
 
 class ProcessTests(Sandbox):

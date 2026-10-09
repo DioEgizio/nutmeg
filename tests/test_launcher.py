@@ -1,5 +1,5 @@
 """End-to-end tests of a launch: a local server stands in for Roblox's version
-endpoint and CDN, and a script stands in for rosetta3."""
+endpoint and CDN, and a script stands in for rosemary."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import launcher as launcher_module
-from nutmeg import paths, roblox, rosetta
+from nutmeg import paths, roblox, rosemary
 from nutmeg.config import Config
 from nutmeg.errors import Cancelled, NutmegError
 from nutmeg.launcher import Launcher
@@ -53,13 +53,13 @@ class LaunchTests(Sandbox):
         self.patches = [
             mock.patch.object(roblox, "CLIENT_VERSION_URLS", (f"{self.server.url}/client-version",)),
             mock.patch.object(roblox, "CDN_HOSTS", (f"{self.server.url}/a", f"{self.server.url}/b")),
-            mock.patch.object(rosetta, "host_arch", return_value="x86_64"),
+            mock.patch.object(rosemary, "host_arch", return_value="x86_64"),
             mock.patch.object(launcher_module, "STARTUP_GRACE_SECONDS", 0.5),
         ]
         for patch in self.patches:
             patch.start()
-        self.tool = self.fake_rosetta3()
-        self.config = Config(rosetta3_path=str(self.tool), fast_flags={"FFlagTest": True})
+        self.tool = self.fake_rosemary()
+        self.config = Config(rosemary_path=str(self.tool), fast_flags={"FFlagTest": True})
         self.server.publish(GUID_A, "0.700.0.1", {"x86_64": roblox_zip()}, ["b"])
         self.started: list[subprocess.Popen] = []
 
@@ -90,11 +90,11 @@ class LaunchTests(Sandbox):
         prefix = paths.default_prefix()
         build = roblox.Build(GUID_A, "0.700.0.1", "x86_64")
         program = build.bundle() / "Contents/MacOS/RobloxPlayer"
-        self.assertEqual(frontend.asked, ["Set up the rosetta3 prefix"])
-        self.assertEqual(rosetta.prefix_base_arch(prefix), "x86_64")
+        self.assertEqual(frontend.asked, ["Set up the rosemary prefix"])
+        self.assertEqual(rosemary.prefix_base_arch(prefix), "x86_64")
         record = self.record()
         self.assertEqual(record["argv"], ["run", str(program), "-protocolString", URL])
-        self.assertEqual(record["env"]["ROSETTA3_PREFIX"], str(prefix))
+        self.assertEqual(record["env"]["ROSEMARY_PREFIX"], str(prefix))
         self.assertEqual(os.path.realpath(record["cwd"]), os.path.realpath(prefix / "root"))
         self.assertEqual(roblox.load_installed(), build)
         flags = program.parent / "ClientSettings/ClientAppSettings.json"
@@ -152,7 +152,7 @@ class LaunchTests(Sandbox):
             self.launch()
 
     def test_immediate_failure_is_reported(self):
-        os.environ["FAKE_ROSETTA3_EXIT"] = "3"
+        os.environ["FAKE_ROSEMARY_EXIT"] = "3"
         with self.assertRaisesRegex(NutmegError, "exit status 3"):
             self.launch()
 
@@ -182,14 +182,14 @@ class LaunchTests(Sandbox):
         self.assertEqual(roblox.installed_keys(), [])
 
     def test_prefix_without_base(self):
-        self.launch(Frontend({"Set up the rosetta3 prefix": "no-base"}))
-        self.assertTrue(rosetta.prefix_created(paths.default_prefix()))
-        self.assertIsNone(rosetta.prefix_base_arch(paths.default_prefix()))
+        self.launch(Frontend({"Set up the rosemary prefix": "no-base"}))
+        self.assertTrue(rosemary.prefix_created(paths.default_prefix()))
+        self.assertIsNone(rosemary.prefix_base_arch(paths.default_prefix()))
 
     def test_dismissing_the_prefix_question_cancels(self):
         with self.assertRaises(Cancelled):
-            self.launch(Frontend({"Set up the rosetta3 prefix": None}))
-        self.assertFalse(rosetta.prefix_created(paths.default_prefix()))
+            self.launch(Frontend({"Set up the rosemary prefix": None}))
+        self.assertFalse(rosemary.prefix_created(paths.default_prefix()))
         self.assertEqual(roblox.installed_keys(), [])
 
     def test_waits_for_another_launch(self):
@@ -209,8 +209,8 @@ class LaunchTests(Sandbox):
         self.assertEqual(len(result), 1)
         self.assertEqual(roblox.installed_keys(), [f"{GUID_A}-x86_64"])
 
-    def test_missing_rosetta3(self):
-        self.config.rosetta3_path = str(self.root / "missing")
+    def test_missing_rosemary(self):
+        self.config.rosemary_path = str(self.root / "missing")
         with self.assertRaises(NutmegError) as caught:
             self.launch()
         self.assertTrue(caught.exception.settings)
@@ -241,13 +241,13 @@ class CommandLineTests(Sandbox):
         self.assertIn("not a Roblox link", result.stderr)
 
     def test_no_terminal_means_no(self):
-        self.fake_rosetta3()
+        self.fake_rosemary()
         (paths.config_dir()).mkdir(parents=True)
-        paths.config_file().write_text('{"rosetta3_path": "%s"}' % (self.root / "bin/rosetta3"))
+        paths.config_file().write_text('{"rosemary_path": "%s"}' % (self.root / "bin/rosemary"))
         result = self.run_cli("update", "--no-gui")
         self.assertEqual(result.returncode, 1)
         self.assertIn("no terminal to ask on", result.stderr)
-        self.assertFalse(rosetta.prefix_created(paths.default_prefix()))
+        self.assertFalse(rosemary.prefix_created(paths.default_prefix()))
 
     def test_version(self):
         result = self.run_cli("--version")

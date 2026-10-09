@@ -13,7 +13,7 @@ from unittest import mock
 
 from nutmeg import launcher as launcher_module
 from nutmeg import config as config_module
-from nutmeg import paths, roblox, rosetta
+from nutmeg import paths, roblox, rosemary
 from nutmeg.config import Config
 
 from helpers import Sandbox, Server, roblox_zip
@@ -143,7 +143,7 @@ class WindowTests(Sandbox):
         window.present()
         pump(lambda: window.get_mapped())
         stack = window._stack
-        for name in ("roblox", "rosetta3", "flags", "integration"):
+        for name in ("roblox", "rosemary", "flags", "integration"):
             stack.set_visible_child_name(name)
             screenshot(window, f"settings-{name}")
         window._swap.set("0")
@@ -160,7 +160,7 @@ class WindowTests(Sandbox):
         self.assertEqual(saved.extra_env, {"RUST_BACKTRACE": "1"})
 
         # A setting the extra variables may not hold is refused with a message.
-        window._env_view.get_buffer().set_text("ROSETTA3_PREFIX=/x\n")
+        window._env_view.get_buffer().set_text("ROSEMARY_PREFIX=/x\n")
         click(window, "Save")
         self.assertIn("Prefix setting", window._message.get_text())
         self.assertEqual(config_module.load(), saved)
@@ -292,21 +292,21 @@ class WindowTests(Sandbox):
         patches = [
             mock.patch.object(roblox, "CLIENT_VERSION_URLS", (f"{server.url}/client-version",)),
             mock.patch.object(roblox, "CDN_HOSTS", (f"{server.url}/a",)),
-            mock.patch.object(rosetta, "host_arch", return_value="x86_64"),
+            mock.patch.object(rosemary, "host_arch", return_value="x86_64"),
             mock.patch.object(launcher_module, "STARTUP_GRACE_SECONDS", 0.5),
         ]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
-        tool = self.fake_rosetta3()
-        config_module.save(Config(rosetta3_path=str(tool)))
+        tool = self.fake_rosemary()
+        config_module.save(Config(rosemary_path=str(tool)))
         url = "roblox-player:1+launchmode:play"
 
         window = LaunchWindow(self.app, url=url, start=True)
         window.present()
-        self.assertTrue(pump(lambda: dialog_titled("Set up the rosetta3 prefix") is not None))
-        screenshot(dialog_titled("Set up the rosetta3 prefix"), "launch-prefix-question")
-        click(dialog_titled("Set up the rosetta3 prefix"), "Download the base")
+        self.assertTrue(pump(lambda: dialog_titled("Set up the rosemary prefix") is not None))
+        screenshot(dialog_titled("Set up the rosemary prefix"), "launch-prefix-question")
+        click(dialog_titled("Set up the rosemary prefix"), "Download the base")
         self.assertTrue(pump(lambda: not window.get_visible(), 30))
         record = self.record()
         self.assertEqual(record["argv"][-2:], ["-protocolString", url])
@@ -314,7 +314,7 @@ class WindowTests(Sandbox):
         self._stop_fake_roblox()
 
     def test_launch_failure_offers_the_log(self):
-        config_module.save(Config(rosetta3_path=str(self.root / "missing")))
+        config_module.save(Config(rosemary_path=str(self.root / "missing")))
         window = LaunchWindow(self.app, url=None, start=True, on_settings=lambda: None)
         window.present()
         title = "Roblox could not be started"
@@ -334,15 +334,15 @@ class WindowTests(Sandbox):
         for patch in (
             mock.patch.object(roblox, "CLIENT_VERSION_URLS", (f"{server.url}/client-version",)),
             mock.patch.object(roblox, "CDN_HOSTS", (f"{server.url}/a",)),
-            mock.patch.object(rosetta, "host_arch", return_value="x86_64"),
+            mock.patch.object(rosemary, "host_arch", return_value="x86_64"),
         ):
             patch.start()
             self.addCleanup(patch.stop)
-        config_module.save(Config(rosetta3_path=str(self.fake_rosetta3())))
+        config_module.save(Config(rosemary_path=str(self.fake_rosemary())))
         window = LaunchWindow(self.app, url=None, start=False)
         window.present()
-        self.assertTrue(pump(lambda: dialog_titled("Set up the rosetta3 prefix") is not None))
-        click(dialog_titled("Set up the rosetta3 prefix"), "Continue without it")
+        self.assertTrue(pump(lambda: dialog_titled("Set up the rosemary prefix") is not None))
+        click(dialog_titled("Set up the rosemary prefix"), "Continue without it")
         self.assertTrue(pump(lambda: window._button.get_label() == "Close", 30))
         self.assertIn("is installed", window._status.get_text())
         screenshot(window, "update-done")

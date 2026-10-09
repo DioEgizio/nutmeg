@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from gi.repository import GLib, Gtk
 
-from .. import __version__, desktop, paths, processes, roblox, rosetta
+from .. import __version__, desktop, paths, processes, roblox, rosemary
 from .. import config as config_module
 from ..config import Config, ConfigError
 from ..errors import Cancelled, NutmegError
@@ -178,7 +178,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.set_child(outer)
 
         self._stack.add_titled(self._roblox_page(), "roblox", "Roblox")
-        self._stack.add_titled(self._rosetta_page(), "rosetta3", "rosetta3")
+        self._stack.add_titled(self._rosemary_page(), "rosemary", "rosemary")
         self._stack.add_titled(self._flags_page(), "flags", "FastFlags")
         self._stack.add_titled(self._integration_page(), "integration", "Integration")
         self._fill(self._saved)
@@ -189,7 +189,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     # Pages.
 
     def _roblox_page(self) -> Gtk.Widget:
-        host = rosetta.host_arch()
+        host = rosemary.host_arch()
         self._installed = _label("", wrap=True)
         self._installed.set_selectable(True)
         self._launch_button = Gtk.Button(label="Launch Roblox")
@@ -219,13 +219,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                         "Build",
                         self._architecture.widget,
                         f"This computer is {host or 'not a supported architecture'}. "
-                        "rosetta3 can emulate the x86_64 build on AArch64, but cannot emulate arm64.",
+                        "rosemary can emulate the x86_64 build on AArch64, but cannot emulate arm64.",
                     ),
                     _row(
                         "Execution",
                         self._engine.widget,
                         "Automatic runs the build natively when it matches this computer, "
-                        "and recompiles x86_64 otherwise (rosetta3 run --native / --emulated).",
+                        "and recompiles x86_64 otherwise (rosemary run --native / --emulated).",
                     ),
                 ],
             ),
@@ -240,12 +240,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         box.append(browse)
         return entry, box
 
-    def _rosetta_page(self) -> Gtk.Widget:
-        found = shutil.which("rosetta3")
-        self._rosetta3_entry, rosetta3_box = self._path_entry(
+    def _rosemary_page(self) -> Gtk.Widget:
+        found = shutil.which("rosemary")
+        self._rosemary_entry, rosemary_box = self._path_entry(
             f"Found on PATH: {found}" if found else "Not found on PATH",
             False,
-            "Choose the rosetta3 program",
+            "Choose the rosemary program",
         )
         self._prefix_entry, prefix_box = self._path_entry(
             str(paths.default_prefix()), True, "Choose the prefix folder"
@@ -265,7 +265,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             [("", "Default"), ("0", "Off (0)"), ("1", "On (1)"), ("-1", "Adaptive (-1)")]
         )
         self._decorations = Choice(
-            [("", "Default"), ("client", "Drawn by rosetta3"), ("server", "Drawn by the window manager")]
+            [("", "Default"), ("client", "Drawn by rosemary"), ("server", "Drawn by the window manager")]
         )
         self._menu = Choice(
             [("", "Default"), ("titlebar", "In the title bar"), ("strip", "In a row below it"), ("none", "Hidden")]
@@ -277,13 +277,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._env_view, env_box = _text_view(90)
         return _page(
             _group(
-                "rosetta3",
+                "rosemary",
                 [
-                    _wide_row("rosetta3 program", rosetta3_box, "Leave empty to use the rosetta3 on PATH."),
+                    _wide_row("rosemary program", rosemary_box, "Leave empty to use the rosemary on PATH."),
                     _wide_row(
                         "Prefix",
                         prefix_box,
-                        "The rosetta3 prefix Roblox runs in (ROSETTA3_PREFIX). Leave empty for nutmeg's own.",
+                        "The rosemary prefix Roblox runs in (ROSEMARY_PREFIX). Leave empty for nutmeg's own.",
                     ),
                     prefix_actions,
                 ],
@@ -291,25 +291,25 @@ class SettingsWindow(Gtk.ApplicationWindow):
             _group(
                 "Runtime",
                 [
-                    _row("VSync", self._swap.widget, "ROSETTA3_SWAP_INTERVAL"),
-                    _row("Title bar", self._decorations.widget, "ROSETTA3_DECORATIONS"),
+                    _row("VSync", self._swap.widget, "ROSEMARY_SWAP_INTERVAL"),
+                    _row("Title bar", self._decorations.widget, "ROSEMARY_DECORATIONS"),
                     _row(
                         "Menus",
                         self._menu.widget,
-                        "ROSETTA3_MENU. With the window manager's title bar, menus go in a row below it.",
+                        "ROSEMARY_MENU. With the window manager's title bar, menus go in a row below it.",
                     ),
                     _row(
                         "Control works as Command in menu shortcuts",
                         self._menu_ctrl,
-                        "ROSETTA3_MENU_CTRL",
+                        "ROSEMARY_MENU_CTRL",
                     ),
                     _row(
                         "Keep the pointer inside the window",
                         self._confine,
-                        "ROSETTA3_CONFINE_POINTER",
+                        "ROSEMARY_CONFINE_POINTER",
                     ),
                 ],
-                "These set rosetta3's environment variables, described in its docs/usage.md.",
+                "These set rosemary's environment variables, described in its docs/usage.md.",
             ),
             _group(
                 "Emulation",
@@ -317,17 +317,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     _row(
                         "Dead flag elimination",
                         self._dead_flags,
-                        "ROSETTA3_DEAD_FLAGS. rosetta3's docs warn that it may have semantic "
+                        "ROSEMARY_DEAD_FLAGS. rosemary's docs warn that it may have semantic "
                         "accuracy bugs.",
                     ),
-                    _row("Native call return", self._call_return, "ROSETTA3_CALL_RETURN"),
+                    _row("Native call return", self._call_return, "ROSEMARY_CALL_RETURN"),
                 ],
-                "Only used when rosetta3 recompiles the x86_64 build.",
+                "Only used when rosemary recompiles the x86_64 build.",
             ),
             _group(
                 "Extra environment variables",
                 [env_box],
-                "One NAME=value per line, passed to rosetta3 and Roblox. Lines starting with # are ignored.",
+                "One NAME=value per line, passed to rosemary and Roblox. Lines starting with # are ignored.",
             ),
         )
 
@@ -374,7 +374,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             _group(
                 "Logs",
                 [_row("Folder", _label(str(paths.logs_dir())))],
-                "Each launch writes one log with nutmeg's steps and everything rosetta3 and Roblox print.",
+                "Each launch writes one log with nutmeg's steps and everything rosemary and Roblox print.",
             ),
             _buttons(logs),
             _label(f"nutmeg {__version__}", dim=True),
@@ -383,7 +383,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     # Moving settings between the widgets and a Config.
 
     def _fill(self, config: Config) -> None:
-        self._rosetta3_entry.set_text(config.rosetta3_path)
+        self._rosemary_entry.set_text(config.rosemary_path)
         self._prefix_entry.set_text(config.prefix_path)
         self._architecture.set(config.architecture)
         self._engine.set(config.engine)
@@ -399,7 +399,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _gather(self) -> Config:
         config = Config(
-            rosetta3_path=self._rosetta3_entry.get_text().strip(),
+            rosemary_path=self._rosemary_entry.get_text().strip(),
             prefix_path=self._prefix_entry.get_text().strip(),
             architecture=self._architecture.get(),
             engine=self._engine.get(),
@@ -414,9 +414,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
             fast_flags=self._flags.get_flags(),
         )
         config.validate()
-        if rosetta.host_arch() is not None:
+        if rosemary.host_arch() is not None:
             try:
-                rosetta.build_arch(config)
+                rosemary.build_arch(config)
             except NutmegError as e:
                 raise ConfigError(str(e)) from e
         return config
@@ -497,10 +497,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         base = None
         if not prefix.is_absolute():
             text = "The prefix must be an absolute path."
-        elif not rosetta.prefix_created(prefix):
+        elif not rosemary.prefix_created(prefix):
             text = "Not created yet. It is set up the first time Roblox is launched."
         else:
-            base = rosetta.prefix_base_arch(prefix)
+            base = rosemary.prefix_base_arch(prefix)
             text = f"Created, with the {base} Darwin base." if base else "Created, without a Darwin base."
         self._prefix_status.set_text(text)
         self._base_button.set_sensitive(not self._busy and prefix.is_absolute())
@@ -620,9 +620,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if config is None:
             return None
         try:
-            return config, rosetta.find_rosetta3(config), rosetta.build_arch(config)
+            return config, rosemary.find_rosemary(config), rosemary.build_arch(config)
         except NutmegError as e:
-            dialogs.inform(self, "rosetta3 is not ready", str(e))
+            dialogs.inform(self, "rosemary is not ready", str(e))
             return None
 
     def _install_base(self) -> None:
@@ -630,12 +630,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if tools is None:
             return
         config, program, arch = tools
-        base_arch = rosetta.BASE_ARCH[arch]
+        base_arch = rosemary.BASE_ARCH[arch]
 
         def work() -> str:
             lines: list[str] = []
             with self._busy_lock():
-                rosetta.create_prefix(program, config.prefix(), base_arch, lines.append, threading.Event())
+                rosemary.create_prefix(program, config.prefix(), base_arch, lines.append, threading.Event())
             return "\n".join(lines)
 
         def answered(choice: Optional[str]) -> None:
@@ -645,9 +645,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         dialogs.choose(
             self,
             "Install the Darwin base?",
-            f"rosetta3 installs its {base_arch} Darwin base system (MiniDarwin) into "
-            f"{config.prefix()}. If it is not cached, rosetta3 downloads it from GitHub and "
-            "checks it against hashes built into rosetta3.",
+            f"rosemary installs its {base_arch} Darwin base system (MiniDarwin) into "
+            f"{config.prefix()}. If it is not cached, rosemary downloads it from GitHub and "
+            "checks it against hashes built into rosemary.",
             [("install", "Install"), ("cancel", "Cancel")],
             answered,
         )
@@ -661,9 +661,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def work() -> str:
             lines: list[str] = []
             with self._busy_lock():
-                code = rosetta.repair_prefix(program, config.prefix(), lines.append, threading.Event())
+                code = rosemary.repair_prefix(program, config.prefix(), lines.append, threading.Event())
             if code != 0:
-                raise NutmegError("\n".join(lines) or f"rosetta3 exited with status {code}")
+                raise NutmegError("\n".join(lines) or f"rosemary exited with status {code}")
             return "\n".join(lines)
 
         self._in_background("Repairing the prefix…", work, "Repair prefix", True)

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Protocol
 
-from . import __version__, paths, processes, roblox, rosetta
+from . import __version__, paths, processes, roblox, rosemary
 from .config import Config
 from .errors import Cancelled, NutmegError
 from .protocol import redact
@@ -51,7 +51,7 @@ class Launched:
 
 class LaunchLog:
     """One file per launch holding nutmeg's own steps followed by everything
-    rosetta3 and Roblox print."""
+    rosemary and Roblox print."""
 
     def __init__(self) -> None:
         directory = paths.logs_dir()
@@ -128,14 +128,14 @@ class Launcher:
         """
         what = f"opening {redact(url)}" if url else ("starting Roblox" if start else "updating Roblox")
         self.log.write(f"nutmeg {__version__}, {what}")
-        rosetta3 = rosetta.find_rosetta3(self.config)
-        arch = rosetta.build_arch(self.config)
+        rosemary = rosemary.find_rosemary(self.config)
+        arch = rosemary.build_arch(self.config)
         prefix = self.config.prefix()
-        self.log.write(f"rosetta3: {rosetta3}; build: {arch}; prefix: {prefix}")
+        self.log.write(f"rosemary: {rosemary}; build: {arch}; prefix: {prefix}")
         self.frontend.progress(None)
         with install_lock(self.cancel, self._waiting):
             roblox.remove_leftovers()
-            self._ensure_prefix(rosetta3, prefix, arch)
+            self._ensure_prefix(rosemary, prefix, arch)
             build, program = self._ensure_build(arch)
             roblox.write_fast_flags(build.bundle(), self.config.fast_flags)
             if start:
@@ -147,43 +147,43 @@ class Launcher:
                 self.frontend.status(f"Roblox {build.label} is installed")
                 self.frontend.progress(1.0)
                 return None
-            return self._spawn(rosetta3, program, url, build)
+            return self._spawn(rosemary, program, url, build)
 
     def _waiting(self) -> None:
         self.frontend.status("Waiting for another nutmeg window to finish…")
         self.frontend.progress(None)
 
-    def _ensure_prefix(self, rosetta3: Path, prefix: Path, arch: str) -> None:
-        wanted = rosetta.BASE_ARCH[arch]
-        if rosetta.prefix_created(prefix):
-            have = rosetta.prefix_base_arch(prefix)
+    def _ensure_prefix(self, rosemary: Path, prefix: Path, arch: str) -> None:
+        wanted = rosemary.BASE_ARCH[arch]
+        if rosemary.prefix_created(prefix):
+            have = rosemary.prefix_base_arch(prefix)
             if have is not None and have != wanted:
                 self.log.write(
                     f"the prefix's Darwin base is {have} but the Roblox build is {arch}; "
-                    "rosetta3 warns about this, and Settings can install a matching base"
+                    "rosemary warns about this, and Settings can install a matching base"
                 )
             return
         answer = self.frontend.ask(
-            "Set up the rosetta3 prefix",
-            f"Roblox will run in its own rosetta3 prefix at {prefix}.\n\n"
-            "rosetta3 can also install its Darwin base system (MiniDarwin) into the "
+            "Set up the rosemary prefix",
+            f"Roblox will run in its own rosemary prefix at {prefix}.\n\n"
+            "rosemary can also install its Darwin base system (MiniDarwin) into the "
             "prefix. It downloads the base from GitHub and checks it against hashes "
-            "built into rosetta3. rosetta3 runs programs without a base, because it "
+            "built into rosemary. rosemary runs programs without a base, because it "
             "links them against its own system libraries.",
             [("base", "Download the base"), ("no-base", "Continue without it")],
         )
         if answer is None:
             raise Cancelled()
         base = wanted if answer == "base" else None
-        self.frontend.status("Setting up the rosetta3 prefix…")
+        self.frontend.status("Setting up the rosemary prefix…")
         self.frontend.progress(None)
 
         def output(line: str) -> None:
-            self.log.write(f"rosetta3: {line}")
+            self.log.write(f"rosemary: {line}")
             if line.strip():
-                self.frontend.status("Setting up the rosetta3 prefix…", line.strip())
+                self.frontend.status("Setting up the rosemary prefix…", line.strip())
 
-        rosetta.create_prefix(rosetta3, prefix, base, output, self.cancel)
+        rosemary.create_prefix(rosemary, prefix, base, output, self.cancel)
 
     def _ensure_build(self, arch: str) -> tuple[roblox.Build, Path]:
         self.frontend.status("Checking for Roblox updates…")
@@ -264,17 +264,17 @@ class Launcher:
             )
 
     def _spawn(
-        self, rosetta3: Path, program: Path, url: Optional[str], build: roblox.Build
+        self, rosemary: Path, program: Path, url: Optional[str], build: roblox.Build
     ) -> Launched:
-        argv = rosetta.run_argv(rosetta3, self.config, program, url)
-        env = rosetta.run_env(self.config)
+        argv = rosemary.run_argv(rosemary, self.config, program, url)
+        env = rosemary.run_env(self.config)
         # Where a Mac program started by the Finder begins: the guest's `/`.
         cwd = self.config.prefix() / "root"
         if not cwd.is_dir():
             cwd = Path.home()
         self.log.write("running: " + redact(shlex.join(argv)))
         for name in sorted(env):
-            if name.startswith("ROSETTA3_"):
+            if name.startswith("ROSEMARY_"):
                 self.log.write(f"  {name}={env[name]}")
         self.frontend.status("Starting Roblox…", "")
         self.frontend.progress(None)
@@ -289,7 +289,7 @@ class Launcher:
                 start_new_session=True,
             )
         except OSError as e:
-            raise NutmegError(f"Could not start {rosetta3}: {e.strerror}", settings=True) from e
+            raise NutmegError(f"Could not start {rosemary}: {e.strerror}", settings=True) from e
         self.log.write(f"started process {process.pid}")
         return Launched(process=process, log=self.log.path, build=build)
 

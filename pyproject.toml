@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nutmeg"
 dynamic = ["version"]
-description = "A Roblox bootstrapper for Linux that runs the macOS client through rosetta3"
+description = "A Roblox bootstrapper for Linux that runs the macOS client through rosemary"
 readme = "README.md"
 requires-python = ">=3.10"
 # PyGObject and GTK 4 come from the Linux distribution; see README.md.

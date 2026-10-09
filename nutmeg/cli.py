@@ -115,7 +115,7 @@ def _gui(mode: str, url: Optional[str]) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nutmeg",
-        description="Install, update and start the macOS Roblox client through rosetta3.",
+        description="Install, update and start the macOS Roblox client through rosemary.",
     )
     parser.add_argument("--version", action="version", version=f"nutmeg {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")

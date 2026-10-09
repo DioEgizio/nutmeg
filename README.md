@@ -2,20 +2,20 @@
 
 nutmeg is a Roblox bootstrapper for Linux. It downloads the macOS Roblox
 client from Roblox's servers, keeps it up to date, and starts it through
-[rosetta3](https://github.com/frolleks/rosetta3), which runs macOS programs on
+[rosemary](https://github.com/microlift/rosemary), which runs macOS programs on
 Linux. It is written in Python with a GTK 4 interface.
 
-rosetta3 is experimental, and so is running Roblox on it. nutmeg installs and
-starts the client the way rosetta3's documentation describes; whether Roblox
-then works depends on the rosetta3 build you use.
+rosemary is experimental, and so is running Roblox on it. nutmeg installs and
+starts the client the way rosemary's documentation describes; whether Roblox
+then works depends on the rosemary build you use.
 
 ## Requirements
 
 - Linux on x86-64 or AArch64.
-- rosetta3, built from source as its README describes:
-  `cargo build --release --bin rosetta3`, which produces
-  `target/release/rosetta3`.
-- SDL3 and a Vulkan driver, which rosetta3 uses at run time: it loads
+- rosemary, built from source as its README describes:
+  `cargo build --release --bin rosemary`, which produces
+  `target/release/rosemary`.
+- SDL3 and a Vulkan driver, which rosemary uses at run time: it loads
   `libSDL3.so.0` for windows, and its Metal is backed by Vulkan.
 - Python 3.10 or newer.
 - PyGObject and GTK 4 (nutmeg is tested with GTK 4.14). On Debian and Ubuntu:
@@ -51,7 +51,7 @@ python3 nutmeg-0.1.0.dev202609302341.pyz
 ## Setting up
 
 1. Run `nutmeg` (or `python3 -m nutmeg`) to open the settings.
-2. On the rosetta3 page, choose the rosetta3 program if it is not on `PATH`,
+2. On the rosemary page, choose the rosemary program if it is not on `PATH`,
    then click Save.
 3. On the Integration page, click Install. This adds "Roblox (nutmeg)" and
    "nutmeg Settings" to the application menu, and makes nutmeg the handler
@@ -59,9 +59,9 @@ python3 nutmeg-0.1.0.dev202609302341.pyz
 
 After that, the Play button on roblox.com starts Roblox through nutmeg.
 
-The first launch asks whether rosetta3 should install its Darwin base system
-(MiniDarwin) into the prefix. rosetta3 downloads it from GitHub and checks it
-against hashes built into rosetta3. Programs run without it, because rosetta3
+The first launch asks whether rosemary should install its Darwin base system
+(MiniDarwin) into the prefix. rosemary downloads it from GitHub and checks it
+against hashes built into rosemary. Programs run without it, because rosemary
 links them against its own system libraries.
 
 ## Commands
@@ -100,13 +100,13 @@ Each launch goes through these steps.
 6. It runs
 
    ```sh
-   ROSETTA3_PREFIX=~/.local/share/nutmeg/prefix \
-     rosetta3 run ~/.local/share/nutmeg/versions/<build>-<arch>/Roblox.app/Contents/MacOS/RobloxPlayer \
+   ROSEMARY_PREFIX=~/.local/share/nutmeg/prefix \
+     rosemary run ~/.local/share/nutmeg/versions/<build>-<arch>/Roblox.app/Contents/MacOS/RobloxPlayer \
      -protocolString <link>
    ```
 
    from the prefix's `root/` folder, which the client sees as `/`. The
-   `-protocolString` argument is how rosetta3's `tools/install-url-handler.sh`
+   `-protocolString` argument is how rosemary's `tools/install-url-handler.sh`
    passes a link, and the client reads it. Without a link, the client is
    started with no arguments, as it is when Roblox.app is opened on a Mac.
 
@@ -114,9 +114,9 @@ If Roblox's version service cannot be reached, nutmeg starts the build it
 installed last.
 
 On an x86-64 computer nutmeg installs the x86_64 build, and on AArch64 the
-arm64 build, so that rosetta3 runs the client natively. On AArch64 the
-settings can choose the x86_64 build instead, which rosetta3 recompiles with
-its Microlift emulator. rosetta3 cannot emulate ARM, so the arm64 build is
+arm64 build, so that rosemary runs the client natively. On AArch64 the
+settings can choose the x86_64 build instead, which rosemary recompiles with
+its Microlift emulator. rosemary cannot emulate ARM, so the arm64 build is
 refused on x86-64.
 
 nutmeg installs Roblox's public release only. When nutmeg was written, the
@@ -125,20 +125,20 @@ version service answered HTTP 401 to requests for other channels.
 ## Settings
 
 The settings are stored in `~/.config/nutmeg/config.json`. The runtime
-options set rosetta3's environment variables, which rosetta3's
+options set rosemary's environment variables, which rosemary's
 `docs/usage.md` describes:
 
 | Setting | Variable |
 | ------- | -------- |
-| Prefix | `ROSETTA3_PREFIX` |
-| VSync | `ROSETTA3_SWAP_INTERVAL` |
-| Title bar | `ROSETTA3_DECORATIONS` |
-| Menus | `ROSETTA3_MENU` |
-| Control works as Command in menu shortcuts | `ROSETTA3_MENU_CTRL` |
-| Keep the pointer inside the window | `ROSETTA3_CONFINE_POINTER` |
-| Dead flag elimination | `ROSETTA3_DEAD_FLAGS` |
-| Native call return | `ROSETTA3_CALL_RETURN` |
-| Execution | `rosetta3 run --native` or `--emulated` |
+| Prefix | `ROSEMARY_PREFIX` |
+| VSync | `ROSEMARY_SWAP_INTERVAL` |
+| Title bar | `ROSEMARY_DECORATIONS` |
+| Menus | `ROSEMARY_MENU` |
+| Control works as Command in menu shortcuts | `ROSEMARY_MENU_CTRL` |
+| Keep the pointer inside the window | `ROSEMARY_CONFINE_POINTER` |
+| Dead flag elimination | `ROSEMARY_DEAD_FLAGS` |
+| Native call return | `ROSEMARY_CALL_RETURN` |
+| Execution | `rosemary run --native` or `--emulated` |
 
 A setting left at "Default" leaves its variable unset, and nutmeg removes
 these variables from the environment it inherits, so the settings are the only
@@ -171,9 +171,9 @@ it applies.
 | ---- | -------- |
 | `~/.config/nutmeg/config.json` | settings |
 | `~/.local/share/nutmeg/versions/` | installed Roblox builds |
-| `~/.local/share/nutmeg/prefix/` | the rosetta3 prefix, including Roblox's own files under `root/Users/<name>/` |
+| `~/.local/share/nutmeg/prefix/` | the rosemary prefix, including Roblox's own files under `root/Users/<name>/` |
 | `~/.cache/nutmeg/downloads/` | downloads in progress |
-| `~/.local/state/nutmeg/logs/` | one log per launch, with nutmeg's steps and everything rosetta3 and Roblox print |
+| `~/.local/state/nutmeg/logs/` | one log per launch, with nutmeg's steps and everything rosemary and Roblox print |
 
 Each path follows the matching `XDG_*_HOME` variable when it is set. The logs
 hide the authentication ticket in `roblox-player:` links; the last 20 are kept.
@@ -203,7 +203,7 @@ python3 scripts/build_nightly.py --version 0.1.0.dev1 --out dist
 ## Development
 
 The tests use a local web server in place of Roblox's servers and a script in
-place of rosetta3:
+place of rosemary:
 
 ```sh
 python3 -m unittest discover -s tests

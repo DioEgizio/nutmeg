@@ -82,7 +82,7 @@ def player_entry(command: list[str]) -> str:
             ("Type", "Application"),
             ("Version", "1.0"),
             ("Name", "Roblox (nutmeg)"),
-            ("Comment", "Play Roblox with the macOS client through rosetta3"),
+            ("Comment", "Play Roblox with the macOS client through rosemary"),
             ("Exec", exec_value(command + ["launch"], "%u")),
             ("Icon", "applications-games"),
             ("Terminal", "false"),

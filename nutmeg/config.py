@@ -12,13 +12,13 @@ from . import fsutil, paths
 # Which Roblox build to install. `auto` picks the one this machine runs
 # natively: x86_64 on x86-64 hosts, arm64 on AArch64 hosts.
 ARCHITECTURES = ("auto", "x86_64", "arm64")
-# `rosetta3 run --native` / `--emulated`, or neither.
+# `rosemary run --native` / `--emulated`, or neither.
 ENGINES = ("auto", "native", "emulated")
-# ROSETTA3_SWAP_INTERVAL. The empty string leaves it unset.
+# ROSEMARY_SWAP_INTERVAL. The empty string leaves it unset.
 SWAP_INTERVALS = ("", "0", "1", "-1")
-# ROSETTA3_DECORATIONS.
+# ROSEMARY_DECORATIONS.
 DECORATIONS = ("", "client", "server")
-# ROSETTA3_MENU.
+# ROSEMARY_MENU.
 MENUS = ("", "titlebar", "strip", "none")
 
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -26,14 +26,14 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # Variables a setting in this file controls, and the setting's name. They may
 # not appear in `extra_env`, so that there is one place each is decided.
 MANAGED_ENV = {
-    "ROSETTA3_PREFIX": "Prefix",
-    "ROSETTA3_SWAP_INTERVAL": "VSync",
-    "ROSETTA3_DECORATIONS": "Title bar",
-    "ROSETTA3_MENU": "Menu placement",
-    "ROSETTA3_MENU_CTRL": "Control as Command",
-    "ROSETTA3_CONFINE_POINTER": "Confine pointer",
-    "ROSETTA3_DEAD_FLAGS": "Dead flag elimination",
-    "ROSETTA3_CALL_RETURN": "Native call return",
+    "ROSEMARY_PREFIX": "Prefix",
+    "ROSEMARY_SWAP_INTERVAL": "VSync",
+    "ROSEMARY_DECORATIONS": "Title bar",
+    "ROSEMARY_MENU": "Menu placement",
+    "ROSEMARY_MENU_CTRL": "Control as Command",
+    "ROSEMARY_CONFINE_POINTER": "Confine pointer",
+    "ROSEMARY_DEAD_FLAGS": "Dead flag elimination",
+    "ROSEMARY_CALL_RETURN": "Native call return",
 }
 
 
@@ -43,7 +43,7 @@ class ConfigError(ValueError):
 
 @dataclass
 class Config:
-    rosetta3_path: str = ""
+    rosemary_path: str = ""
     prefix_path: str = ""
     architecture: str = "auto"
     engine: str = "auto"
@@ -58,20 +58,20 @@ class Config:
     fast_flags: dict = field(default_factory=dict)
 
     def prefix(self) -> Path:
-        """The rosetta3 prefix Roblox runs in."""
+        """The rosemary prefix Roblox runs in."""
         if self.prefix_path:
             return Path(self.prefix_path).expanduser()
         return paths.default_prefix()
 
-    def rosetta3(self) -> Path | None:
-        """The rosetta3 binary the user chose, or None to search `PATH`."""
-        if self.rosetta3_path:
-            return Path(self.rosetta3_path).expanduser()
+    def rosemary(self) -> Path | None:
+        """The rosemary binary the user chose, or None to search `PATH`."""
+        if self.rosemary_path:
+            return Path(self.rosemary_path).expanduser()
         return None
 
     def validate(self) -> None:
         problems = []
-        for name in ("rosetta3_path", "prefix_path"):
+        for name in ("rosemary_path", "prefix_path"):
             value = getattr(self, name)
             if not isinstance(value, str):
                 problems.append(f"{name} must be a string")

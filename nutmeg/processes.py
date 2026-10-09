@@ -1,9 +1,9 @@
 """Finding and stopping the Roblox processes nutmeg started.
 
 A process belongs to an installed build when one of its arguments is a path
-inside that build's directory: `rosetta3 run <versions>/<build>/Roblox.app/...`
+inside that build's directory: `rosemary run <versions>/<build>/Roblox.app/...`
 for the client, and the same path spelled the way the guest sees it
-(`/Volumes/Host/...`) for a program the client started, which rosetta3 runs by
+(`/Volumes/Host/...`) for a program the client started, which rosemary runs by
 re-executing itself with the guest's path.
 """
 
