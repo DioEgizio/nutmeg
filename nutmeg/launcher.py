@@ -128,14 +128,14 @@ class Launcher:
         """
         what = f"opening {redact(url)}" if url else ("starting Roblox" if start else "updating Roblox")
         self.log.write(f"nutmeg {__version__}, {what}")
-        rosemary = rosemary.find_rosemary(self.config)
+        binary = rosemary.find_rosemary(self.config)
         arch = rosemary.build_arch(self.config)
         prefix = self.config.prefix()
-        self.log.write(f"rosemary: {rosemary}; build: {arch}; prefix: {prefix}")
+        self.log.write(f"rosemary: {binary}; build: {arch}; prefix: {prefix}")
         self.frontend.progress(None)
         with install_lock(self.cancel, self._waiting):
             roblox.remove_leftovers()
-            self._ensure_prefix(rosemary, prefix, arch)
+            self._ensure_prefix(binary, prefix, arch)
             build, program = self._ensure_build(arch)
             roblox.write_fast_flags(build.bundle(), self.config.fast_flags)
             if start:
@@ -147,13 +147,13 @@ class Launcher:
                 self.frontend.status(f"Roblox {build.label} is installed")
                 self.frontend.progress(1.0)
                 return None
-            return self._spawn(rosemary, program, url, build)
+            return self._spawn(binary, program, url, build)
 
     def _waiting(self) -> None:
         self.frontend.status("Waiting for another nutmeg window to finish…")
         self.frontend.progress(None)
 
-    def _ensure_prefix(self, rosemary: Path, prefix: Path, arch: str) -> None:
+    def _ensure_prefix(self, binary: Path, prefix: Path, arch: str) -> None:
         wanted = rosemary.BASE_ARCH[arch]
         if rosemary.prefix_created(prefix):
             have = rosemary.prefix_base_arch(prefix)
@@ -183,7 +183,7 @@ class Launcher:
             if line.strip():
                 self.frontend.status("Setting up the rosemary prefix…", line.strip())
 
-        rosemary.create_prefix(rosemary, prefix, base, output, self.cancel)
+        rosemary.create_prefix(binary, prefix, base, output, self.cancel)
 
     def _ensure_build(self, arch: str) -> tuple[roblox.Build, Path]:
         self.frontend.status("Checking for Roblox updates…")
@@ -264,9 +264,9 @@ class Launcher:
             )
 
     def _spawn(
-        self, rosemary: Path, program: Path, url: Optional[str], build: roblox.Build
+        self, binary: Path, program: Path, url: Optional[str], build: roblox.Build
     ) -> Launched:
-        argv = rosemary.run_argv(rosemary, self.config, program, url)
+        argv = rosemary.run_argv(binary, self.config, program, url)
         env = rosemary.run_env(self.config)
         # Where a Mac program started by the Finder begins: the guest's `/`.
         cwd = self.config.prefix() / "root"
@@ -289,7 +289,7 @@ class Launcher:
                 start_new_session=True,
             )
         except OSError as e:
-            raise NutmegError(f"Could not start {rosemary}: {e.strerror}", settings=True) from e
+            raise NutmegError(f"Could not start {binary}: {e.strerror}", settings=True) from e
         self.log.write(f"started process {process.pid}")
         return Launched(process=process, log=self.log.path, build=build)
 
