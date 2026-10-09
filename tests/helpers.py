@@ -20,7 +20,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from rostrap import roblox
+from nutmeg import roblox
 
 
 def macho(arch: str) -> bytes:
@@ -106,7 +106,7 @@ class Server:
 FAKE_ROSETTA3 = textwrap.dedent(
     """\
     #!{python}
-    # Stands in for rosetta3: `prefix create` makes the state file rostrap looks
+    # Stands in for rosetta3: `prefix create` makes the state file nutmeg looks
     # for, and `run` records how it was started, then waits or fails as asked.
     import json, os, sys, time
     args = sys.argv[1:]
@@ -149,7 +149,7 @@ class Sandbox(unittest.TestCase):
     """Points every XDG directory and HOME at a scratch directory."""
 
     def setUp(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="rostrap-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="nutmeg-test-"))
         self._saved_env = dict(os.environ)
         os.environ["HOME"] = str(self.root / "home")
         for variable, name in (

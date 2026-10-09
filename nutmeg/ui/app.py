@@ -45,8 +45,8 @@ def run(mode: str, url: Optional[str]) -> int:
     """Show the window for `mode` (`settings`, `launch` or `update`) and run
     until it closes. Mode `error` only shows `url` as an error message."""
     if not Gtk.init_check():
-        print("rostrap: cannot open a display; use --no-gui", file=sys.stderr)
+        print("nutmeg: cannot open a display; use --no-gui", file=sys.stderr)
         return 1
-    GLib.set_application_name("rostrap")
-    # GApplication gets no arguments of ours: rostrap parses its own.
+    GLib.set_application_name("nutmeg")
+    # GApplication gets no arguments of ours: nutmeg parses its own.
     return Application(mode, url).run([sys.argv[0]])

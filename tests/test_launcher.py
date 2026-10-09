@@ -13,11 +13,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from rostrap import launcher as launcher_module
-from rostrap import paths, roblox, rosetta
-from rostrap.config import Config
-from rostrap.errors import Cancelled, RostrapError
-from rostrap.launcher import Launcher
+from nutmeg import launcher as launcher_module
+from nutmeg import paths, roblox, rosetta
+from nutmeg.config import Config
+from nutmeg.errors import Cancelled, NutmegError
+from nutmeg.launcher import Launcher
 
 from helpers import Sandbox, Server, roblox_zip
 
@@ -148,12 +148,12 @@ class LaunchTests(Sandbox):
 
     def test_offline_with_nothing_installed_fails(self):
         self.server.routes["/client-version"] = 503
-        with self.assertRaisesRegex(RostrapError, "current Roblox version"):
+        with self.assertRaisesRegex(NutmegError, "current Roblox version"):
             self.launch()
 
     def test_immediate_failure_is_reported(self):
         os.environ["FAKE_ROSETTA3_EXIT"] = "3"
-        with self.assertRaisesRegex(RostrapError, "exit status 3"):
+        with self.assertRaisesRegex(NutmegError, "exit status 3"):
             self.launch()
 
     def test_truncated_download_falls_back_to_the_next_host(self):
@@ -165,7 +165,7 @@ class LaunchTests(Sandbox):
 
     def test_every_host_failing_is_reported(self):
         del self.server.routes[f"/b/mac/{GUID_A}-RobloxPlayer.zip"]
-        with self.assertRaisesRegex(RostrapError, "Could not download Roblox 0.700.0.1"):
+        with self.assertRaisesRegex(NutmegError, "Could not download Roblox 0.700.0.1"):
             self.launch()
         self.assertEqual(list(paths.downloads_dir().iterdir()), [])
 
@@ -211,7 +211,7 @@ class LaunchTests(Sandbox):
 
     def test_missing_rosetta3(self):
         self.config.rosetta3_path = str(self.root / "missing")
-        with self.assertRaises(RostrapError) as caught:
+        with self.assertRaises(NutmegError) as caught:
             self.launch()
         self.assertTrue(caught.exception.settings)
 
@@ -231,7 +231,7 @@ class CommandLineTests(Sandbox):
         root = Path(__file__).resolve().parent.parent
         env = dict(os.environ, PYTHONPATH=str(root))
         return subprocess.run(
-            [sys.executable, "-m", "rostrap", *args], env=env, capture_output=True, text=True, timeout=60,
+            [sys.executable, "-m", "nutmeg", *args], env=env, capture_output=True, text=True, timeout=60,
             stdin=subprocess.DEVNULL,
         )
 
@@ -252,7 +252,7 @@ class CommandLineTests(Sandbox):
     def test_version(self):
         result = self.run_cli("--version")
         self.assertEqual(result.returncode, 0)
-        self.assertRegex(result.stdout, r"^rostrap \d")
+        self.assertRegex(result.stdout, r"^nutmeg \d")
 
 
 if __name__ == "__main__":

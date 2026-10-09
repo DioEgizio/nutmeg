@@ -20,7 +20,7 @@ from typing import Callable, Iterator, Optional, Protocol
 
 from . import __version__, paths, processes, roblox, rosetta
 from .config import Config
-from .errors import Cancelled, RostrapError
+from .errors import Cancelled, NutmegError
 from .protocol import redact
 
 # How long a freshly started Roblox is watched for an immediate failure.
@@ -50,7 +50,7 @@ class Launched:
 
 
 class LaunchLog:
-    """One file per launch holding rostrap's own steps followed by everything
+    """One file per launch holding nutmeg's own steps followed by everything
     rosetta3 and Roblox print."""
 
     def __init__(self) -> None:
@@ -65,7 +65,7 @@ class LaunchLog:
 
     def write(self, line: str) -> None:
         stamp = time.strftime("%H:%M:%S")
-        self._file.write(f"[rostrap {stamp}] {line}\n".encode("utf-8", "replace"))
+        self._file.write(f"[nutmeg {stamp}] {line}\n".encode("utf-8", "replace"))
 
     def fileno(self) -> int:
         return self._file.fileno()
@@ -86,7 +86,7 @@ class LaunchLog:
 
 @contextmanager
 def install_lock(cancel: threading.Event, waiting: Callable[[], None]) -> Iterator[None]:
-    """Hold rostrap's install lock, so that two launches at once do not
+    """Hold nutmeg's install lock, so that two launches at once do not
     download or remove builds under each other."""
     path = paths.lock_file()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,11 +123,11 @@ class Launcher:
     def run(self, url: Optional[str], start: bool = True) -> Optional[Launched]:
         """Install or update Roblox, then start it with `url` when `start`.
 
-        Raises `RostrapError` for a failure to report and `Cancelled` when the
+        Raises `NutmegError` for a failure to report and `Cancelled` when the
         user backed out.
         """
         what = f"opening {redact(url)}" if url else ("starting Roblox" if start else "updating Roblox")
-        self.log.write(f"rostrap {__version__}, {what}")
+        self.log.write(f"nutmeg {__version__}, {what}")
         rosetta3 = rosetta.find_rosetta3(self.config)
         arch = rosetta.build_arch(self.config)
         prefix = self.config.prefix()
@@ -150,7 +150,7 @@ class Launcher:
             return self._spawn(rosetta3, program, url, build)
 
     def _waiting(self) -> None:
-        self.frontend.status("Waiting for another rostrap window to finish…")
+        self.frontend.status("Waiting for another nutmeg window to finish…")
         self.frontend.progress(None)
 
     def _ensure_prefix(self, rosetta3: Path, prefix: Path, arch: str) -> None:
@@ -190,7 +190,7 @@ class Launcher:
         self.frontend.progress(None)
         try:
             latest = roblox.fetch_latest(arch)
-        except RostrapError as e:
+        except NutmegError as e:
             self.log.write(str(e))
             installed = roblox.load_installed()
             program = None
@@ -257,7 +257,7 @@ class Launcher:
         self.frontend.progress(None)
         left = processes.terminate(sorted(running))
         if left:
-            raise RostrapError(
+            raise NutmegError(
                 "Could not close the running Roblox (process "
                 + ", ".join(map(str, left))
                 + ")."
@@ -289,7 +289,7 @@ class Launcher:
                 start_new_session=True,
             )
         except OSError as e:
-            raise RostrapError(f"Could not start {rosetta3}: {e.strerror}", settings=True) from e
+            raise NutmegError(f"Could not start {rosetta3}: {e.strerror}", settings=True) from e
         self.log.write(f"started process {process.pid}")
         return Launched(process=process, log=self.log.path, build=build)
 
@@ -308,6 +308,6 @@ class Launcher:
                 how = f"it was killed by {signal.Signals(-code).name}"
             except ValueError:
                 how = f"it was killed by signal {-code}"
-            raise RostrapError(f"Roblox stopped right after starting: {how}.")
+            raise NutmegError(f"Roblox stopped right after starting: {how}.")
         if code != 0:
-            raise RostrapError(f"Roblox stopped right after starting (exit status {code}).")
+            raise NutmegError(f"Roblox stopped right after starting (exit status {code}).")

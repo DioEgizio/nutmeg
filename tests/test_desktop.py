@@ -11,7 +11,7 @@ import time
 import unittest
 from pathlib import Path
 
-from rostrap import desktop, paths
+from nutmeg import desktop, paths
 
 from helpers import Sandbox
 
@@ -52,17 +52,17 @@ class ExecTests(Sandbox):
             desktop.exec_value(["a\nb"])
 
     def test_command_for_a_source_checkout(self):
-        command = desktop.rostrap_command()
+        command = desktop.nutmeg_command()
         root = Path(__file__).resolve().parent.parent
-        self.assertEqual(command, ["env", f"PYTHONPATH={root}", sys.executable, "-m", "rostrap"])
+        self.assertEqual(command, ["env", f"PYTHONPATH={root}", sys.executable, "-m", "nutmeg"])
 
 
 class EntryTests(Sandbox):
     @unittest.skipIf(shutil.which("desktop-file-validate") is None, "needs desktop-file-utils")
     def test_entries_validate(self):
-        command = desktop.rostrap_command()
+        command = desktop.nutmeg_command()
         for name, text in (("player", desktop.player_entry(command)), ("settings", desktop.settings_entry(command))):
-            path = self.root / f"io.github.frolleks.Rostrap.{name}.desktop"
+            path = self.root / f"io.github.frolleks.Nutmeg.{name}.desktop"
             path.write_text(text)
             result = subprocess.run(["desktop-file-validate", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

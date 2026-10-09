@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rostrap"
+name = "nutmeg"
 dynamic = ["version"]
 description = "A Roblox bootstrapper for Linux that runs the macOS client through rosetta3"
 readme = "README.md"
@@ -18,10 +18,10 @@ classifiers = [
 ]
 
 [project.scripts]
-rostrap = "rostrap.cli:main"
+nutmeg = "nutmeg.cli:main"
 
 [tool.setuptools]
-packages = ["rostrap", "rostrap.ui"]
+packages = ["nutmeg", "nutmeg.ui"]
 
 [tool.setuptools.dynamic]
-version = { attr = "rostrap.__version__" }
+version = { attr = "nutmeg.__version__" }

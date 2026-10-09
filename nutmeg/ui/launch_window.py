@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from gi.repository import GLib, Gtk
 
 from .. import config as config_module
-from ..errors import Cancelled, RostrapError
+from ..errors import Cancelled, NutmegError
 from ..launcher import Launcher
 from . import dialogs
 
@@ -166,7 +166,7 @@ class LaunchWindow(Gtk.ApplicationWindow):
                 launched = launcher.run(self._url, self._start)
                 if launched is not None:
                     launcher.settle(launched)
-            except (RostrapError, Cancelled):
+            except (NutmegError, Cancelled):
                 raise
             except Exception:
                 launcher.log.write(traceback.format_exc().rstrip())
@@ -180,7 +180,7 @@ class LaunchWindow(Gtk.ApplicationWindow):
         except config_module.ConfigError as e:
             GLib.idle_add(self._done_failed, f"The settings could not be read.\n\n{e}", True, None, "")
             return
-        except RostrapError as e:
+        except NutmegError as e:
             GLib.idle_add(self._done_failed, str(e), e.settings, log, tail)
             return
         except OSError as e:

@@ -1,4 +1,4 @@
-"""The `rostrap` command."""
+"""The `nutmeg` command."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Optional
 
 from . import __version__, desktop
 from . import config as config_module
-from .errors import Cancelled, RostrapError
+from .errors import Cancelled, NutmegError
 from .protocol import InvalidURL, check
 
 
@@ -67,7 +67,7 @@ def _launch_in_terminal(url: Optional[str], start: bool, assume_yes: bool) -> in
     try:
         config = config_module.load()
     except config_module.ConfigError as e:
-        print(f"rostrap: {e}", file=sys.stderr)
+        print(f"nutmeg: {e}", file=sys.stderr)
         return 1
     cancel = threading.Event()
     frontend = TerminalFrontend(assume_yes)
@@ -81,12 +81,12 @@ def _launch_in_terminal(url: Optional[str], start: bool, assume_yes: bool) -> in
         return 0
     except (Cancelled, KeyboardInterrupt):
         cancel.set()
-        print("rostrap: cancelled", file=sys.stderr)
+        print("nutmeg: cancelled", file=sys.stderr)
         return 1
-    except RostrapError as e:
-        print(f"rostrap: {e}", file=sys.stderr)
+    except NutmegError as e:
+        print(f"nutmeg: {e}", file=sys.stderr)
     except OSError as e:
-        print(f"rostrap: {e}", file=sys.stderr)
+        print(f"nutmeg: {e}", file=sys.stderr)
     except Exception:
         if launcher is not None:
             launcher.log.write(traceback.format_exc().rstrip())
@@ -95,7 +95,7 @@ def _launch_in_terminal(url: Optional[str], start: bool, assume_yes: bool) -> in
         if launcher is not None:
             launcher.log.close()
     if launcher is not None:
-        print(f"rostrap: the log is {launcher.log.path}", file=sys.stderr)
+        print(f"nutmeg: the log is {launcher.log.path}", file=sys.stderr)
     return 1
 
 
@@ -104,7 +104,7 @@ def _gui(mode: str, url: Optional[str]) -> int:
         from .ui import app
     except (ImportError, ValueError) as e:
         print(
-            f"rostrap: GTK 4 for Python is not available ({e}). Install PyGObject and "
+            f"nutmeg: GTK 4 for Python is not available ({e}). Install PyGObject and "
             "GTK 4 (on Debian and Ubuntu: python3-gi gir1.2-gtk-4.0), or use --no-gui.",
             file=sys.stderr,
         )
@@ -114,10 +114,10 @@ def _gui(mode: str, url: Optional[str]) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="rostrap",
+        prog="nutmeg",
         description="Install, update and start the macOS Roblox client through rosetta3.",
     )
-    parser.add_argument("--version", action="version", version=f"rostrap {__version__}")
+    parser.add_argument("--version", action="version", version=f"nutmeg {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     commands.add_parser("settings", help="open the settings window (the default)")
     for name, text in (
@@ -134,7 +134,7 @@ def _parser() -> argparse.ArgumentParser:
             "--yes", action="store_true", help="with --no-gui, answer every question with its first choice"
         )
     commands.add_parser(
-        "install-desktop", help="add menu entries and open roblox-player: and roblox: links with rostrap"
+        "install-desktop", help="add menu entries and open roblox-player: and roblox: links with nutmeg"
     )
     commands.add_parser("uninstall-desktop", help="remove the menu entries")
     return parser
@@ -143,14 +143,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parser().parse_args(argv)
     if not sys.platform.startswith("linux"):
-        print("rostrap: rostrap is made for Linux.", file=sys.stderr)
+        print("nutmeg: nutmeg is made for Linux.", file=sys.stderr)
         return 1
     command = args.command or "settings"
     if command in ("install-desktop", "uninstall-desktop"):
         try:
             done = desktop.install() if command == "install-desktop" else desktop.uninstall()
-        except (RostrapError, OSError) as e:
-            print(f"rostrap: {e}", file=sys.stderr)
+        except (NutmegError, OSError) as e:
+            print(f"nutmeg: {e}", file=sys.stderr)
             return 1
         for line in done or ["nothing to remove"]:
             print(line)
@@ -162,10 +162,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             check(url)
         except InvalidURL as e:
-            print(f"rostrap: {e}", file=sys.stderr)
+            print(f"nutmeg: {e}", file=sys.stderr)
             if not args.no_gui:
                 # Most likely started by a browser, with no terminal to read.
-                _gui("error", f"rostrap was asked to open a link it does not handle: {e}")
+                _gui("error", f"nutmeg was asked to open a link it does not handle: {e}")
             return 2
     start = command == "launch"
     if args.no_gui:

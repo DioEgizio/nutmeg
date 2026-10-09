@@ -80,7 +80,7 @@ jobs:
         id: name
         run: |
           stamp=$(date -u +%Y%m%d%H%M)
-          base=$(/usr/bin/python3 -c 'import rostrap; print(rostrap.__version__)')
+          base=$(/usr/bin/python3 -c 'import nutmeg; print(nutmeg.__version__)')
           {
             echo "version=${base}.dev${stamp}"
             echo "tag=nightly-${stamp:0:8}-${stamp:8:4}"
@@ -124,9 +124,9 @@ jobs:
             echo
             echo "Files:"
             echo
-            echo "- \`rostrap-$VERSION.pyz\`: run with \`python3 rostrap-$VERSION.pyz\`. PyGObject and GTK 4 come from your distribution, as the README describes."
-            echo "- \`rostrap-$VERSION-py3-none-any.whl\`: install with \`pipx install --system-site-packages ./rostrap-$VERSION-py3-none-any.whl\`."
-            echo "- \`rostrap-$VERSION.tar.gz\`: the source."
+            echo "- \`nutmeg-$VERSION.pyz\`: run with \`python3 nutmeg-$VERSION.pyz\`. PyGObject and GTK 4 come from your distribution, as the README describes."
+            echo "- \`nutmeg-$VERSION-py3-none-any.whl\`: install with \`pipx install --system-site-packages ./nutmeg-$VERSION-py3-none-any.whl\`."
+            echo "- \`nutmeg-$VERSION.tar.gz\`: the source."
             echo "- \`SHA256SUMS\`: checksums of the files above."
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$TAG" dist/* \

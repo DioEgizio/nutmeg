@@ -1,5 +1,5 @@
 """The windows, driven through GTK. Skipped without a display; run under
-xvfb-run on a machine without one. With ROSTRAP_SCREENSHOTS set to a folder,
+xvfb-run on a machine without one. With NUTMEG_SCREENSHOTS set to a folder,
 each window is also saved there as a PNG."""
 
 from __future__ import annotations
@@ -11,10 +11,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from rostrap import launcher as launcher_module
-from rostrap import config as config_module
-from rostrap import paths, roblox, rosetta
-from rostrap.config import Config
+from nutmeg import launcher as launcher_module
+from nutmeg import config as config_module
+from nutmeg import paths, roblox, rosetta
+from nutmeg.config import Config
 
 from helpers import Sandbox, Server, roblox_zip
 
@@ -30,16 +30,16 @@ except (ImportError, ValueError):
     HAVE_DISPLAY = False
 
 if HAVE_DISPLAY:
-    from rostrap.ui.app import Application
-    from rostrap.ui.launch_window import LaunchWindow
-    from rostrap.ui.settings_window import SettingsWindow
+    from nutmeg.ui.app import Application
+    from nutmeg.ui.launch_window import LaunchWindow
+    from nutmeg.ui.settings_window import SettingsWindow
 
 
 _APPLICATION = None
 
 
 def shared_application():
-    """One registered application for every test, as rostrap has one per
+    """One registered application for every test, as nutmeg has one per
     process: on a desktop session bus, a second registration of the same
     application ID in one process is refused."""
     global _APPLICATION
@@ -109,7 +109,7 @@ def click(window, label: str) -> None:
 
 
 def screenshot(window, name: str) -> None:
-    folder = os.environ.get("ROSTRAP_SCREENSHOTS")
+    folder = os.environ.get("NUTMEG_SCREENSHOTS")
     if not folder:
         return
     pump(lambda: window.get_width() > 0, 5)
@@ -350,7 +350,7 @@ class WindowTests(Sandbox):
         self.assertTrue(pump(lambda: not window.get_visible()))
 
     def _stop_fake_roblox(self) -> None:
-        from rostrap import processes
+        from nutmeg import processes
 
         processes.terminate(sorted(processes.running()))
 

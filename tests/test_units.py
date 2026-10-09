@@ -15,10 +15,10 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-from rostrap import config as config_module
-from rostrap import fastflags, paths, processes, protocol, roblox, rosetta
-from rostrap.config import Config, ConfigError
-from rostrap.errors import RostrapError
+from nutmeg import config as config_module
+from nutmeg import fastflags, paths, processes, protocol, roblox, rosetta
+from nutmeg.config import Config, ConfigError
+from nutmeg.errors import NutmegError
 
 from helpers import Sandbox, fat, macho, roblox_zip
 
@@ -185,13 +185,13 @@ class InstallTests(Sandbox):
         ]
         for extra in cases:
             with self.subTest(extra=extra[0][0]):
-                with self.assertRaises(RostrapError):
+                with self.assertRaises(NutmegError):
                     self.install(roblox_zip(extra=extra))
                 self.assertEqual(list(paths.versions_dir().iterdir()), [])
         self.assertFalse((self.root / "escape").exists())
 
     def test_wrong_architecture_is_refused(self):
-        with self.assertRaisesRegex(RostrapError, "expected to be arm64"):
+        with self.assertRaisesRegex(NutmegError, "expected to be arm64"):
             self.install(roblox_zip("x86_64"), roblox.Build(self.build.guid, "", "arm64"))
         self.assertEqual(list(paths.versions_dir().iterdir()), [])
 
@@ -212,7 +212,7 @@ class InstallTests(Sandbox):
                 name_length, extra_length = struct.unpack("<HH", data[start + 26 : start + 30])
                 body = start + 30 + name_length + extra_length
                 data[body + info.compress_size // 2] ^= 0xFF
-                with self.assertRaises(RostrapError):
+                with self.assertRaises(NutmegError):
                     self.install(bytes(data))
                 self.assertEqual(list(paths.versions_dir().iterdir()), [])
 
@@ -321,28 +321,28 @@ class RosettaTests(Sandbox):
     def test_build_choice(self):
         with mock.patch.object(rosetta, "host_arch", return_value="x86_64"):
             self.assertEqual(rosetta.build_arch(Config()), "x86_64")
-            with self.assertRaises(RostrapError):
+            with self.assertRaises(NutmegError):
                 rosetta.build_arch(Config(architecture="arm64"))
         with mock.patch.object(rosetta, "host_arch", return_value="arm64"):
             self.assertEqual(rosetta.build_arch(Config()), "arm64")
             self.assertEqual(rosetta.build_arch(Config(architecture="x86_64")), "x86_64")
             self.assertEqual(rosetta.build_arch(Config(architecture="x86_64", engine="emulated")), "x86_64")
             for bad in (Config(architecture="x86_64", engine="native"), Config(engine="emulated")):
-                with self.assertRaises(RostrapError):
+                with self.assertRaises(NutmegError):
                     rosetta.build_arch(bad)
         with mock.patch.object(rosetta, "host_arch", return_value=None):
-            with self.assertRaises(RostrapError):
+            with self.assertRaises(NutmegError):
                 rosetta.build_arch(Config())
 
     def test_find_rosetta3(self):
         with mock.patch.dict(os.environ, {"PATH": str(self.root / "nowhere")}):
-            with self.assertRaises(RostrapError):
+            with self.assertRaises(NutmegError):
                 rosetta.find_rosetta3(Config())
             tool = self.fake_rosetta3()
             self.assertEqual(rosetta.find_rosetta3(Config(rosetta3_path=str(tool))), tool)
         with mock.patch.dict(os.environ, {"PATH": str(tool.parent)}):
             self.assertEqual(rosetta.find_rosetta3(Config()), tool)
-        with self.assertRaises(RostrapError):
+        with self.assertRaises(NutmegError):
             rosetta.find_rosetta3(Config(rosetta3_path=str(self.root)))
 
     def test_create_prefix(self):
@@ -363,7 +363,7 @@ class RosettaTests(Sandbox):
         self.assertIsNone(rosetta.prefix_base_arch(other))
 
         os.environ["FAKE_ROSETTA3_PREFIX_FAIL"] = "1"
-        with self.assertRaisesRegex(RostrapError, "could not download the base"):
+        with self.assertRaisesRegex(NutmegError, "could not download the base"):
             rosetta.create_prefix(tool, self.root / "third", "x86_64", lines.append, threading.Event())
 
 

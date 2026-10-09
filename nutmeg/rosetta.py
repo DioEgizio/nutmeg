@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 from .config import MANAGED_ENV, Config
-from .errors import Cancelled, RostrapError
+from .errors import Cancelled, NutmegError
 
 # How a prefix's Darwin base names each Roblox build's architecture.
 BASE_ARCH = {"x86_64": "x86_64", "arm64": "aarch64"}
@@ -41,25 +41,25 @@ def build_arch(config: Config) -> str:
     """Which Roblox build to install."""
     host = host_arch()
     if host is None:
-        raise RostrapError(
+        raise NutmegError(
             f"Roblox for macOS has no build for this machine ({platform.machine()})."
         )
     wanted = host if config.architecture == "auto" else config.architecture
     # rosetta3 recompiles x86-64 only; ARM emulation is not supported.
     if wanted != host and wanted != "x86_64":
-        raise RostrapError(
+        raise NutmegError(
             f"The {wanted} build cannot run on this {host} machine: rosetta3 can only "
             "emulate x86_64. Choose another build in Settings.",
             settings=True,
         )
     if config.engine == "native" and wanted != host:
-        raise RostrapError(
+        raise NutmegError(
             f"The {wanted} build cannot run natively on this {host} machine. "
             "Choose another build or execution mode in Settings.",
             settings=True,
         )
     if config.engine == "emulated" and wanted != "x86_64":
-        raise RostrapError(
+        raise NutmegError(
             "rosetta3 can only emulate the x86_64 build. Choose the x86_64 build or "
             "another execution mode in Settings.",
             settings=True,
@@ -71,11 +71,11 @@ def find_rosetta3(config: Config) -> Path:
     chosen = config.rosetta3()
     if chosen is not None:
         if not chosen.is_file() or not os.access(chosen, os.X_OK):
-            raise RostrapError(f"{chosen} is not an executable file.", settings=True)
+            raise NutmegError(f"{chosen} is not an executable file.", settings=True)
         return chosen
     found = shutil.which("rosetta3")
     if found is None:
-        raise RostrapError(
+        raise NutmegError(
             "rosetta3 was not found on PATH. Build it (cargo build --release --bin "
             "rosetta3) and choose target/release/rosetta3 in Settings.",
             settings=True,
@@ -127,7 +127,7 @@ def _run_captured(
             stderr=subprocess.STDOUT,
         )
     except OSError as e:
-        raise RostrapError(f"Could not run {argv[0]}: {e.strerror}", settings=True) from e
+        raise NutmegError(f"Could not run {argv[0]}: {e.strerror}", settings=True) from e
     # A cancel kills the command; the read loop below then sees end of file.
     watcher_done = threading.Event()
 
@@ -182,7 +182,7 @@ def create_prefix(
 
     code = _run_captured(argv, env, keep, cancel)
     if code != 0:
-        raise RostrapError(
+        raise NutmegError(
             f"rosetta3 could not create the prefix (exit status {code}):\n" + "\n".join(last)
         )
 

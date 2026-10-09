@@ -1,4 +1,4 @@
-"""Finding and stopping the Roblox processes rostrap started.
+"""Finding and stopping the Roblox processes nutmeg started.
 
 A process belongs to an installed build when one of its arguments is a path
 inside that build's directory: `rosetta3 run <versions>/<build>/Roblox.app/...`

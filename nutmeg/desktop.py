@@ -1,4 +1,4 @@
-"""Menu entries, and registering rostrap for Roblox's URL schemes.
+"""Menu entries, and registering nutmeg for Roblox's URL schemes.
 
 Two desktop entries are written to $XDG_DATA_HOME/applications: one that
 starts Roblox and handles `roblox-player:` and `roblox:` links, and one that
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from . import paths
-from .errors import RostrapError
+from .errors import NutmegError
 from .protocol import SCHEMES
 
 PLAYER_ID = f"{paths.APP_ID}.desktop"
@@ -30,7 +30,7 @@ def quote_exec_argument(argument: str) -> str:
     """One argument for an `Exec` key, as the Desktop Entry spec quotes it,
     before the key file's own escaping (see `exec_value`)."""
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in argument):
-        raise RostrapError(f"Cannot put a control character in a desktop entry: {argument!r}")
+        raise NutmegError(f"Cannot put a control character in a desktop entry: {argument!r}")
     if any(c in _RESERVED for c in argument):
         escaped = "".join("\\" + c if c in '"`$\\' else c for c in argument)
         argument = f'"{escaped}"'
@@ -55,17 +55,17 @@ def _on_default_path(directory: Path) -> bool:
     return any(os.path.realpath(c) == real for c in candidates)
 
 
-def rostrap_command() -> list[str]:
-    """How to run this copy of rostrap from a desktop entry.
+def nutmeg_command() -> list[str]:
+    """How to run this copy of nutmeg from a desktop entry.
 
     The interpreter running now is used, so a virtual environment keeps
     working. A copy that is not installed (a source checkout) is found through
     PYTHONPATH.
     """
     if not sys.executable:
-        raise RostrapError("Cannot tell which Python interpreter is running rostrap.")
+        raise NutmegError("Cannot tell which Python interpreter is running nutmeg.")
     package_parent = Path(__file__).resolve().parent.parent
-    command = [sys.executable, "-m", "rostrap"]
+    command = [sys.executable, "-m", "nutmeg"]
     if not _on_default_path(package_parent):
         command = ["env", f"PYTHONPATH={package_parent}"] + command
     return command
@@ -81,7 +81,7 @@ def player_entry(command: list[str]) -> str:
         [
             ("Type", "Application"),
             ("Version", "1.0"),
-            ("Name", "Roblox (rostrap)"),
+            ("Name", "Roblox (nutmeg)"),
             ("Comment", "Play Roblox with the macOS client through rosetta3"),
             ("Exec", exec_value(command + ["launch"], "%u")),
             ("Icon", "applications-games"),
@@ -98,8 +98,8 @@ def settings_entry(command: list[str]) -> str:
         [
             ("Type", "Application"),
             ("Version", "1.0"),
-            ("Name", "rostrap Settings"),
-            ("Comment", "Configure how rostrap installs and runs Roblox"),
+            ("Name", "nutmeg Settings"),
+            ("Comment", "Configure how nutmeg installs and runs Roblox"),
             ("Exec", exec_value(command + ["settings"])),
             ("Icon", "applications-games"),
             ("Terminal", "false"),
@@ -116,14 +116,14 @@ def _refresh_database(directory: Path) -> None:
 
 
 def install() -> list[str]:
-    """Write both entries and make rostrap the handler for Roblox links.
+    """Write both entries and make nutmeg the handler for Roblox links.
     Returns what was done, one line each."""
     xdg_mime = shutil.which("xdg-mime")
     if xdg_mime is None:
-        raise RostrapError("xdg-mime was not found. Install xdg-utils, then try again.")
+        raise NutmegError("xdg-mime was not found. Install xdg-utils, then try again.")
     directory = paths.applications_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    command = rostrap_command()
+    command = nutmeg_command()
     done = []
     for name, text in ((PLAYER_ID, player_entry(command)), (SETTINGS_ID, settings_entry(command))):
         path = directory / name
@@ -138,7 +138,7 @@ def install() -> list[str]:
             text=True,
         )
         if result.returncode != 0:
-            raise RostrapError(
+            raise NutmegError(
                 f"xdg-mime could not set the handler for {mime}: "
                 + (result.stderr.strip() or f"exit status {result.returncode}")
             )

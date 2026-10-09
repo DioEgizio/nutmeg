@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build rostrap's release files from the committed tree.
+"""Build nutmeg's release files from the committed tree.
 
     python3 scripts/build_nightly.py --version 0.1.0.dev202609302341 --out dist
 
@@ -28,14 +28,14 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGE = "rostrap"
+PACKAGE = "nutmeg"
 
 _VERSION_LINE = re.compile(r'^__version__ = "[^"\n]*"$', re.MULTILINE)
 # A release or development version, without a local part: GitHub renames
 # release files that contain "+", which would break the wheel's file name.
 _VERSION = re.compile(r"^[0-9]+(\.[0-9]+)*(\.dev[0-9]+)?$")
 
-_ZIPAPP_MAIN = "import sys\n\nfrom rostrap.cli import main\n\nsys.exit(main())\n"
+_ZIPAPP_MAIN = "import sys\n\nfrom nutmeg.cli import main\n\nsys.exit(main())\n"
 
 
 def export_head(destination: Path) -> None:
@@ -119,7 +119,7 @@ def main() -> int:
         parser.error(f"{out} is not empty")
     out.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="rostrap-build-") as scratch_name:
+    with tempfile.TemporaryDirectory(prefix="nutmeg-build-") as scratch_name:
         scratch = Path(scratch_name)
         tree = scratch / "tree"
         tree.mkdir()

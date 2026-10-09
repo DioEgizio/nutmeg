@@ -12,7 +12,7 @@ from gi.repository import GLib, Gtk
 from .. import __version__, desktop, paths, processes, roblox, rosetta
 from .. import config as config_module
 from ..config import Config, ConfigError
-from ..errors import Cancelled, RostrapError
+from ..errors import Cancelled, NutmegError
 from ..launcher import install_lock
 from . import dialogs
 from .flag_editor import FlagEditor
@@ -141,7 +141,7 @@ def _text_of(view: Gtk.TextView) -> str:
 
 class SettingsWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application):
-        super().__init__(application=application, title="rostrap Settings")
+        super().__init__(application=application, title="nutmeg Settings")
         self.set_default_size(700, 640)
         self._closing = False
         self._busy = False
@@ -283,7 +283,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     _wide_row(
                         "Prefix",
                         prefix_box,
-                        "The rosetta3 prefix Roblox runs in (ROSETTA3_PREFIX). Leave empty for rostrap's own.",
+                        "The rosetta3 prefix Roblox runs in (ROSETTA3_PREFIX). Leave empty for nutmeg's own.",
                     ),
                     prefix_actions,
                 ],
@@ -366,18 +366,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
             _group(
                 "Desktop",
                 rows,
-                "Adds Roblox and rostrap Settings to the application menu, and makes rostrap "
+                "Adds Roblox and nutmeg Settings to the application menu, and makes nutmeg "
                 "open roblox-player: and roblox: links, so that Play on roblox.com starts "
-                "Roblox through rostrap.",
+                "Roblox through nutmeg.",
             ),
             _buttons(install, remove),
             _group(
                 "Logs",
                 [_row("Folder", _label(str(paths.logs_dir())))],
-                "Each launch writes one log with rostrap's steps and everything rosetta3 and Roblox print.",
+                "Each launch writes one log with nutmeg's steps and everything rosetta3 and Roblox print.",
             ),
             _buttons(logs),
-            _label(f"rostrap {__version__}", dim=True),
+            _label(f"nutmeg {__version__}", dim=True),
         )
 
     # Moving settings between the widgets and a Config.
@@ -417,7 +417,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if rosetta.host_arch() is not None:
             try:
                 rosetta.build_arch(config)
-            except RostrapError as e:
+            except NutmegError as e:
                 raise ConfigError(str(e)) from e
         return config
 
@@ -565,7 +565,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def run() -> None:
             try:
                 output, failed = work(), False
-            except (RostrapError, OSError) as e:
+            except (NutmegError, OSError) as e:
                 output, failed = str(e), True
             except Cancelled:
                 output, failed = "Cancelled.", True
@@ -588,7 +588,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     @staticmethod
     def _busy_lock():
         def busy() -> None:
-            raise RostrapError("Another rostrap window is installing Roblox. Try again when it has finished.")
+            raise NutmegError("Another nutmeg window is installing Roblox. Try again when it has finished.")
 
         return install_lock(threading.Event(), busy)
 
@@ -596,7 +596,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def work() -> str:
             with self._busy_lock():
                 if processes.running():
-                    raise RostrapError("Close Roblox first.")
+                    raise NutmegError("Close Roblox first.")
                 removed = roblox.remove_versions(keep=set(), in_use=set())
                 roblox.forget_installed()
                 roblox.remove_leftovers()
@@ -621,7 +621,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             return None
         try:
             return config, rosetta.find_rosetta3(config), rosetta.build_arch(config)
-        except RostrapError as e:
+        except NutmegError as e:
             dialogs.inform(self, "rosetta3 is not ready", str(e))
             return None
 
@@ -663,7 +663,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             with self._busy_lock():
                 code = rosetta.repair_prefix(program, config.prefix(), lines.append, threading.Event())
             if code != 0:
-                raise RostrapError("\n".join(lines) or f"rosetta3 exited with status {code}")
+                raise NutmegError("\n".join(lines) or f"rosetta3 exited with status {code}")
             return "\n".join(lines)
 
         self._in_background("Repairing the prefix…", work, "Repair prefix", True)
@@ -671,7 +671,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _install_desktop(self) -> None:
         try:
             done = desktop.install()
-        except (RostrapError, OSError) as e:
+        except (NutmegError, OSError) as e:
             dialogs.inform(self, "Could not install the menu entries", str(e))
         else:
             self._say("Installed: " + "; ".join(done))

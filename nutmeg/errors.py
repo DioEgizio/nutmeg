@@ -1,9 +1,9 @@
-"""Exceptions whose message is written for the person using rostrap."""
+"""Exceptions whose message is written for the person using nutmeg."""
 
 from __future__ import annotations
 
 
-class RostrapError(Exception):
+class NutmegError(Exception):
     """Something went wrong that the user has to know about.
 
     `settings` says whether changing a setting is the likely fix, so that the

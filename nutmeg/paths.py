@@ -1,4 +1,4 @@
-"""Where rostrap keeps its files, following the XDG base directory spec.
+"""Where nutmeg keeps its files, following the XDG base directory spec.
 
 Every location is a function rather than a constant so that it follows the
 environment at the time it is asked for, which is what the tests rely on.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-APP_ID = "io.github.frolleks.Rostrap"
+APP_ID = "io.github.frolleks.Nutmeg"
 
 
 def _base(variable: str, fallback: str) -> Path:
@@ -21,19 +21,19 @@ def _base(variable: str, fallback: str) -> Path:
 
 
 def config_dir() -> Path:
-    return _base("XDG_CONFIG_HOME", ".config") / "rostrap"
+    return _base("XDG_CONFIG_HOME", ".config") / "nutmeg"
 
 
 def data_dir() -> Path:
-    return _base("XDG_DATA_HOME", ".local/share") / "rostrap"
+    return _base("XDG_DATA_HOME", ".local/share") / "nutmeg"
 
 
 def cache_dir() -> Path:
-    return _base("XDG_CACHE_HOME", ".cache") / "rostrap"
+    return _base("XDG_CACHE_HOME", ".cache") / "nutmeg"
 
 
 def state_dir() -> Path:
-    return _base("XDG_STATE_HOME", ".local/state") / "rostrap"
+    return _base("XDG_STATE_HOME", ".local/state") / "nutmeg"
 
 
 def config_file() -> Path:
@@ -62,7 +62,7 @@ def logs_dir() -> Path:
 
 
 def lock_file() -> Path:
-    return data_dir() / "rostrap.lock"
+    return data_dir() / "nutmeg.lock"
 
 
 def applications_dir() -> Path:

@@ -36,9 +36,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from . import __version__, fsutil, paths
-from .errors import Cancelled, RostrapError
+from .errors import Cancelled, NutmegError
 
-USER_AGENT = f"rostrap/{__version__}"
+USER_AGENT = f"nutmeg/{__version__}"
 TIMEOUT = 30
 
 CLIENT_VERSION_URLS = (
@@ -126,13 +126,13 @@ def fetch_latest(arch: str) -> Build:
         if not isinstance(version, str) or not _VERSION.match(version):
             version = ""
         return Build(guid=guid, version=version, arch=arch)
-    raise RostrapError("Could not find out the current Roblox version.\n" + "\n".join(failures))
+    raise NutmegError("Could not find out the current Roblox version.\n" + "\n".join(failures))
 
 
 def _check_space(directory: Path, needed: int) -> None:
     free = shutil.disk_usage(directory).free
     if free < needed + _SPARE_BYTES:
-        raise RostrapError(
+        raise NutmegError(
             f"Not enough disk space in {directory}: {needed / 1e6:.0f} MB is needed, "
             f"{free / 1e6:.0f} MB is free."
         )
@@ -177,7 +177,7 @@ def download(build: Build, progress: Progress, cancel: threading.Event) -> Path:
             raise
         os.replace(partial, target)
         return target
-    raise RostrapError(f"Could not download Roblox {build.label}.\n" + "\n".join(failures))
+    raise NutmegError(f"Could not download Roblox {build.label}.\n" + "\n".join(failures))
 
 
 def _check_zip(path: Path) -> None:
@@ -190,10 +190,10 @@ def _member_parts(name: str) -> list[str]:
     """The path components of an archive member, refusing any that would land
     outside the directory being extracted into."""
     if name.startswith("/") or "\0" in name:
-        raise RostrapError(f"The Roblox archive holds an unsafe path: {name!r}")
+        raise NutmegError(f"The Roblox archive holds an unsafe path: {name!r}")
     parts = [part for part in name.split("/") if part not in ("", ".")]
     if not parts or ".." in parts or parts[0] != BUNDLE_IN_ZIP:
-        raise RostrapError(f"The Roblox archive holds an unexpected path: {name!r}")
+        raise NutmegError(f"The Roblox archive holds an unexpected path: {name!r}")
     return parts
 
 
@@ -203,7 +203,7 @@ def _check_link_target(name: str, target: str) -> None:
     # induction over the links before it), so no chain of links escapes.
     parts = target.split("/")
     if not target or target.startswith("/") or "\0" in target or ".." in parts:
-        raise RostrapError(f"The Roblox archive holds an unsafe link: {name!r} -> {target!r}")
+        raise NutmegError(f"The Roblox archive holds an unsafe link: {name!r} -> {target!r}")
 
 
 def _extract_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, root: Path) -> None:
@@ -218,12 +218,12 @@ def _extract_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, root: Pat
         try:
             target = archive.read(member).decode("utf-8")
         except UnicodeDecodeError as e:
-            raise RostrapError(f"The Roblox archive holds an unreadable link: {member.filename!r}") from e
+            raise NutmegError(f"The Roblox archive holds an unreadable link: {member.filename!r}") from e
         _check_link_target(member.filename, target)
         os.symlink(target, destination)
         return
     if kind not in (0, stat.S_IFREG):
-        raise RostrapError(f"The Roblox archive holds a special file: {member.filename!r}")
+        raise NutmegError(f"The Roblox archive holds a special file: {member.filename!r}")
     # The archive's own modes are 0777 and 0666. Only whether a file is
     # executable is kept; the umask decides the rest, as for any new file.
     permissions = 0o777 if mode & 0o111 else 0o666
@@ -241,10 +241,10 @@ def executable(bundle: Path) -> Path:
         with open(info, "rb") as f:
             plist = plistlib.load(f)
     except (OSError, ValueError, xml.parsers.expat.ExpatError) as e:
-        raise RostrapError(f"Could not read {info}: {e}") from e
+        raise NutmegError(f"Could not read {info}: {e}") from e
     name = plist.get("CFBundleExecutable") if isinstance(plist, dict) else None
     if not isinstance(name, str) or not name or "/" in name or name in (".", ".."):
-        raise RostrapError(f"{info} does not name an executable")
+        raise NutmegError(f"{info} does not name an executable")
     return bundle / "Contents" / "MacOS" / name
 
 
@@ -280,11 +280,11 @@ def macho_architectures(path: Path) -> set[str]:
 def _verify_bundle(bundle: Path, arch: str) -> Path:
     program = executable(bundle)
     if not program.is_file() or not os.access(program, os.X_OK):
-        raise RostrapError(f"{program} is missing or not executable")
+        raise NutmegError(f"{program} is missing or not executable")
     found = macho_architectures(program)
     if arch not in found:
         have = ", ".join(sorted(found)) or "no recognised architecture"
-        raise RostrapError(f"{program} was expected to be {arch}, but has {have}")
+        raise NutmegError(f"{program} was expected to be {arch}, but has {have}")
     return program
 
 
@@ -295,7 +295,7 @@ def installed_executable(build: Build) -> Path | None:
         return None
     try:
         return _verify_bundle(bundle, build.arch)
-    except (RostrapError, OSError):
+    except (NutmegError, OSError):
         return None
 
 
@@ -324,7 +324,7 @@ def install(zip_path: Path, build: Build, progress: Progress, cancel: threading.
         os.rename(staging, final)
     except (zipfile.BadZipFile, zlib.error, EOFError) as e:
         shutil.rmtree(staging, ignore_errors=True)
-        raise RostrapError(f"The downloaded Roblox archive is damaged: {e}") from e
+        raise NutmegError(f"The downloaded Roblox archive is damaged: {e}") from e
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -332,7 +332,7 @@ def install(zip_path: Path, build: Build, progress: Progress, cancel: threading.
 
 
 def load_installed() -> Build | None:
-    """The build rostrap last installed, if the record of it is readable."""
+    """The build nutmeg last installed, if the record of it is readable."""
     try:
         data = json.loads(paths.installed_file().read_text("utf-8"))
     except (OSError, ValueError):
