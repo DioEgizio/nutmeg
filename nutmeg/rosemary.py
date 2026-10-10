@@ -225,14 +225,15 @@ def run_env(config: Config, base: dict[str, str] | None = None) -> dict[str, str
     return env
 
 
-def run_argv(rosemary: Path, config: Config, program: Path, url: str | None) -> list[str]:
-    """The command line that starts Roblox."""
+def run_argv(rosemary: Path, config: Config, app: Path, url: str | None) -> list[str]:
+    """The command line that starts Roblox. `app` is the Roblox.app folder;
+    rosemary finds the executable inside it."""
     argv = [str(rosemary), "run"]
     if config.engine == "native":
         argv.append("--native")
     elif config.engine == "emulated":
         argv.append("--emulated")
-    argv.append(str(program))
+    argv.append(str(app))
     if url is not None:
         argv += ["-protocolString", url]
     return argv

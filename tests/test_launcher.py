@@ -93,7 +93,7 @@ class LaunchTests(Sandbox):
         self.assertEqual(frontend.asked, ["Set up the rosemary prefix"])
         self.assertEqual(rosemary.prefix_base_arch(prefix), "x86_64")
         record = self.record()
-        self.assertEqual(record["argv"], ["run", str(program), "-protocolString", URL])
+        self.assertEqual(record["argv"], ["run", str(build.bundle()), "-protocolString", URL])
         self.assertEqual(record["env"]["ROSEMARY_PREFIX"], str(prefix))
         self.assertEqual(os.path.realpath(record["cwd"]), os.path.realpath(prefix / "root"))
         self.assertEqual(roblox.load_installed(), build)

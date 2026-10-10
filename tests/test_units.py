@@ -310,7 +310,7 @@ class RosemaryTests(Sandbox):
         )
 
     def test_command_line(self):
-        program = Path("/data/versions/v/Roblox.app/Contents/MacOS/RobloxPlayer")
+        program = Path("/data/versions/v/Roblox.app")
         tool = Path("/bin/rosemary")
         self.assertEqual(rosemary.run_argv(tool, Config(), program, None), ["/bin/rosemary", "run", str(program)])
         self.assertEqual(

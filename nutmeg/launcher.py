@@ -136,7 +136,7 @@ class Launcher:
         with install_lock(self.cancel, self._waiting):
             roblox.remove_leftovers()
             self._ensure_prefix(binary, prefix, arch)
-            build, program = self._ensure_build(arch)
+            build, _executable = self._ensure_build(arch)
             roblox.write_fast_flags(build.bundle(), self.config.fast_flags)
             if start:
                 self._stop_running()
@@ -147,7 +147,7 @@ class Launcher:
                 self.frontend.status(f"Roblox {build.label} is installed")
                 self.frontend.progress(1.0)
                 return None
-            return self._spawn(binary, program, url, build)
+            return self._spawn(binary, url, build)
 
     def _waiting(self) -> None:
         self.frontend.status("Waiting for another nutmeg window to finish…")
@@ -264,9 +264,9 @@ class Launcher:
             )
 
     def _spawn(
-        self, binary: Path, program: Path, url: Optional[str], build: roblox.Build
+        self, binary: Path, url: Optional[str], build: roblox.Build
     ) -> Launched:
-        argv = rosemary.run_argv(binary, self.config, program, url)
+        argv = rosemary.run_argv(binary, self.config, build.bundle(), url)
         env = rosemary.run_env(self.config)
         # Where a Mac program started by the Finder begins: the guest's `/`.
         cwd = self.config.prefix() / "root"

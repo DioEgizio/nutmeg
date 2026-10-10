@@ -101,7 +101,7 @@ Each launch goes through these steps.
 
    ```sh
    ROSEMARY_PREFIX=~/.local/share/nutmeg/prefix \
-     rosemary run ~/.local/share/nutmeg/versions/<build>-<arch>/Roblox.app/Contents/MacOS/RobloxPlayer \
+     rosemary run ~/.local/share/nutmeg/versions/<build>-<arch>/Roblox.app \
      -protocolString <link>
    ```
 
