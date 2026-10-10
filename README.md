@@ -24,6 +24,10 @@ then works depends on the rosemary build you use.
   `sudo pacman -S python-gobject gtk4`.
 - xdg-utils, so that nutmeg can open `roblox-player:` links from the browser.
 
+## Nix development environment
+
+For Nix users, simply run `nix develop`.
+
 ## Installing
 
 nutmeg runs straight from a checkout:
