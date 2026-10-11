@@ -33,7 +33,7 @@ For Nix users, simply run `nix develop`.
 nutmeg runs straight from a checkout:
 
 ```sh
-git clone https://github.com/frolleks/rostrap nutmeg
+git clone https://github.com/frolleks/nutmeg
 cd nutmeg
 python3 -m nutmeg
 ```
