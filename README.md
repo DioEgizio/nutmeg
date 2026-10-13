@@ -12,11 +12,14 @@ then works depends on the rosemary build you use.
 ## Requirements
 
 - Linux on x86-64 or AArch64.
-- rosemary, built from source as its README describes:
-  `cargo build --release --bin rosemary`, which produces
-  `target/release/rosemary`.
-- SDL3 and a Vulkan driver, which rosemary uses at run time: it loads
-  `libSDL3.so.0` for windows, and its Metal is backed by Vulkan.
+- rosemary. rosemary's installation guide recommends getting it through
+  [Butter](https://github.com/microlift/butter), which installs official
+  rosemary builds (it calls them runners) and lists them for nutmeg to use.
+  A rosemary on `PATH`, or one you built yourself with
+  `cargo build --release --bin rosemary`, also works.
+- A Vulkan driver, which rosemary's Metal uses. A rosemary you built yourself
+  also needs SDL 3.4.0 or newer (`libSDL3.so.0`); Butter's official builds
+  bring their own.
 - Python 3.10 or newer.
 - PyGObject and GTK 4 (nutmeg is tested with GTK 4.14). On Debian and Ubuntu:
   `sudo apt install python3-gi gir1.2-gtk-4.0`. On Fedora:
@@ -54,10 +57,12 @@ python3 nutmeg-0.1.0.dev202609302341.pyz
 
 ## Setting up
 
-1. Run `nutmeg` (or `python3 -m nutmeg`) to open the settings.
-2. On the rosemary page, choose the rosemary program if it is not on `PATH`,
-   then click Save.
-3. On the Integration page, click Install. This adds "Roblox (nutmeg)" and
+1. In Butter, open Runners and install a rosemary release. Skip this if
+   rosemary is on `PATH` or you built it yourself.
+2. Run `nutmeg` (or `python3 -m nutmeg`) to open the settings.
+3. On the rosemary page, choose the program: one of Butter's runners, the
+   rosemary on `PATH`, or "Another program…" for any other file. Click Save.
+4. On the Integration page, click Install. This adds "Roblox (nutmeg)" and
    "nutmeg Settings" to the application menu, and makes nutmeg the handler
    for `roblox-player:` and `roblox:` links.
 
@@ -100,6 +105,9 @@ Each launch goes through these steps.
    `Roblox.app/Contents/MacOS/ClientSettings/ClientAppSettings.json`.
 4. If Roblox is already running, it offers to close it. The macOS client runs
    one instance at a time (`LSMultipleInstancesProhibited` in its Info.plist).
+   After closing it, nutmeg runs `rosemary server --stop` to stop the
+   prefix's process server, as Butter's Stop button does, unless the Process
+   server setting is off.
 5. It removes older builds that no Roblox process is using.
 6. It runs
 
@@ -126,6 +134,26 @@ refused on x86-64.
 nutmeg installs Roblox's public release only. When nutmeg was written, the
 version service answered HTTP 401 to requests for other channels.
 
+## Using Butter's runners and bottles
+
+nutmeg reads Butter's files to list its runners and bottles in the settings.
+It looks in `$XDG_DATA_HOME/butter/` and, for the Flatpak,
+`~/.var/app/io.github.microlift.butter/data/butter/`, and it never changes
+anything there.
+
+A runner is listed when its `runner.toml` names an executable that exists.
+Choosing one stores the path of that executable, such as
+`~/.local/share/butter/runners/<id>/bin/rosemary`. If
+Butter later removes the runner, the next launch says so and points to the
+settings. Butter's official builds bundle the libraries rosemary needs, so they
+run outside the Flatpak too. A runner the Flatpak compiled from source was
+linked against the Flatpak's runtime and may not start outside it.
+
+The Prefix setting lists Butter's bottles next to nutmeg's own prefix. In a
+bottle's prefix, Roblox shares its files with the bottle's other programs, but
+it runs with nutmeg's settings, not the bottle's. Butter does not start
+Roblox, so Roblox does not appear in Butter's Process Manager.
+
 ## Settings
 
 The settings are stored in `~/.config/nutmeg/config.json`. The runtime
@@ -135,7 +163,11 @@ options set rosemary's environment variables, which rosemary's
 | Setting | Variable |
 | ------- | -------- |
 | Prefix | `ROSEMARY_PREFIX` |
+| Home folder | `ROSEMARY_PREFIX_HOME` |
+| Process server | `ROSEMARY_SERVER` (`off` when switched off) |
 | VSync | `ROSEMARY_SWAP_INTERVAL` |
+| Presentation mode | `ROSEMARY_METAL_PRESENTATION_MODE` |
+| Refresh rate | `ROSEMARY_SCREEN_REFRESH_RATE` |
 | Title bar | `ROSEMARY_DECORATIONS` |
 | Menus | `ROSEMARY_MENU` |
 | Control works as Command in menu shortcuts | `ROSEMARY_MENU_CTRL` |
@@ -147,7 +179,10 @@ options set rosemary's environment variables, which rosemary's
 A setting left at "Default" leaves its variable unset, and nutmeg removes
 these variables from the environment it inherits, so the settings are the only
 place they come from. Any other variable can be added under "Extra environment
-variables".
+variables". A settings file from an older nutmeg that sets
+`ROSEMARY_PREFIX_HOME`, `ROSEMARY_SERVER`, `ROSEMARY_METAL_PRESENTATION_MODE`
+or `ROSEMARY_SCREEN_REFRESH_RATE` there has the value moved to its setting when
+it is loaded.
 
 ## FastFlags
 

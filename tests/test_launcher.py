@@ -119,6 +119,17 @@ class LaunchTests(Sandbox):
         self.assertEqual(frontend.asked, ["Roblox is already running"])
         self.assertIsNotNone(first.process.poll())
         self.assertIsNone(second.process.poll())
+        # The prefix's process server was asked to stop with the first Roblox.
+        stopped = Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".server").read_text()
+        self.assertEqual(stopped, f"{paths.default_prefix()}\n")
+        self.assertIn("rosemary server --stop exited with status 1", second.log.read_text())
+
+    def test_no_server_to_stop_when_it_is_off(self):
+        self.config.process_server = False
+        self.launch()
+        self.launch()
+        self.assertFalse(Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".server").exists())
+        self.assertEqual(self.record()["env"]["ROSEMARY_SERVER"], "off")
 
     def test_update_replaces_the_old_build(self):
         self.launch(start=False)
