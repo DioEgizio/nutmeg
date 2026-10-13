@@ -283,7 +283,7 @@ class Launcher:
             cwd = Path.home()
         self.log.write("running: " + redact(shlex.join(argv)))
         for name in sorted(env):
-            if name.startswith("ROSEMARY_"):
+            if name.startswith("ROSEMARY_") or name in ("SDL_VIDEO_DRIVER", "SDL_VIDEODRIVER"):
                 self.log.write(f"  {name}={env[name]}")
         self.frontend.status("Starting Roblox…", "")
         self.frontend.progress(None)

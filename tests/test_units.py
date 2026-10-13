@@ -127,6 +127,7 @@ class ConfigTests(Sandbox):
             {"screen_refresh_rate": "fast"},
             {"screen_refresh_rate": "inf"},
             {"screen_refresh_rate": "1_000"},
+            {"video_driver": "xwayland"},
         ]
         for data in bad:
             with self.subTest(data=data), self.assertRaises(ConfigError):
@@ -149,6 +150,11 @@ class ConfigTests(Sandbox):
         self.assertEqual(config.metal_presentation_mode, "fifo")
         self.assertEqual(config.screen_refresh_rate, "59.94")
         self.assertEqual(config.extra_env, {"RUST_LOG": "debug"})
+        # SDL reads SDL_VIDEO_DRIVER before its older spelling, and so does this.
+        config = Config.from_dict({"extra_env": {"SDL_VIDEODRIVER": "wayland", "SDL_VIDEO_DRIVER": "X11"}})
+        self.assertEqual((config.video_driver, config.extra_env), ("x11", {}))
+        config = Config.from_dict({"extra_env": {"SDL_VIDEODRIVER": "wayland"}})
+        self.assertEqual(config.video_driver, "wayland")
         # Values rosemary would ignore become the defaults, which it uses then.
         config = Config.from_dict(
             {"extra_env": {"ROSEMARY_METAL_PRESENTATION_MODE": "vsync", "ROSEMARY_SCREEN_REFRESH_RATE": "0"}}
@@ -312,9 +318,16 @@ class RosemaryTests(Sandbox):
         self.assertEqual(rosemary.prefix_base_arch(prefix), "x86_64")
 
     def test_environment(self):
-        inherited = {"ROSEMARY_DEAD_FLAGS": "1", "ROSEMARY_PREFIX": "/elsewhere", "PATH": "/bin", "ROSEMARY_OBJC": "builtin"}
+        inherited = {
+            "ROSEMARY_DEAD_FLAGS": "1",
+            "ROSEMARY_PREFIX": "/elsewhere",
+            "PATH": "/bin",
+            "ROSEMARY_OBJC": "builtin",
+            "SDL_VIDEODRIVER": "x11",
+        }
         env = rosemary.run_env(Config(), inherited)
         self.assertNotIn("ROSEMARY_DEAD_FLAGS", env)
+        self.assertNotIn("SDL_VIDEODRIVER", env)
         self.assertEqual(env["ROSEMARY_PREFIX"], str(paths.default_prefix()))
         self.assertEqual(env["ROSEMARY_OBJC"], "builtin")
         self.assertEqual(env["PATH"], "/bin")
@@ -330,6 +343,7 @@ class RosemaryTests(Sandbox):
             process_server=False,
             metal_presentation_mode="immediate",
             screen_refresh_rate="144",
+            video_driver="wayland",
             extra_env={"RUST_BACKTRACE": "1"},
         )
         env = rosemary.run_env(config, {"ROSEMARY_SCREEN_REFRESH_RATE": "30"})
@@ -347,6 +361,7 @@ class RosemaryTests(Sandbox):
                 "ROSEMARY_SERVER": "off",
                 "ROSEMARY_METAL_PRESENTATION_MODE": "immediate",
                 "ROSEMARY_SCREEN_REFRESH_RATE": "144",
+                "SDL_VIDEO_DRIVER": "wayland",
                 "RUST_BACKTRACE": "1",
             },
         )

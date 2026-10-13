@@ -253,6 +253,8 @@ def run_env(config: Config, base: dict[str, str] | None = None) -> dict[str, str
         env["ROSEMARY_METAL_PRESENTATION_MODE"] = config.metal_presentation_mode
     if config.screen_refresh_rate:
         env["ROSEMARY_SCREEN_REFRESH_RATE"] = config.screen_refresh_rate
+    if config.video_driver:
+        env["SDL_VIDEO_DRIVER"] = config.video_driver
     return env
 
 
