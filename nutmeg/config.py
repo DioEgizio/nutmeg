@@ -25,6 +25,10 @@ MENUS = ("", "titlebar", "strip", "none")
 PREFIX_HOMES = ("", "prefix", "host")
 # ROSEMARY_METAL_PRESENTATION_MODE.
 PRESENTATION_MODES = ("", "immediate", "fifo", "fifo_relaxed", "mailbox")
+# SDL_VIDEO_DRIVER: SDL's Wayland backend, or its X11 one (XWayland on a
+# Wayland desktop). rosemary has no variable of its own for this; it opens
+# its windows with SDL and leaves the choice to SDL.
+VIDEO_DRIVERS = ("", "wayland", "x11")
 
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -43,6 +47,9 @@ MANAGED_ENV = {
     "ROSEMARY_SERVER": "Process server",
     "ROSEMARY_METAL_PRESENTATION_MODE": "Presentation mode",
     "ROSEMARY_SCREEN_REFRESH_RATE": "Refresh rate",
+    "SDL_VIDEO_DRIVER": "Display server",
+    # SDL reads this older spelling when SDL_VIDEO_DRIVER is unset.
+    "SDL_VIDEODRIVER": "Display server",
 }
 
 
@@ -74,6 +81,8 @@ _ADOPTED_ENV = {
         "screen_refresh_rate",
         lambda v: v.strip() if _refresh_rate_ok(v) else "",
     ),
+    "SDL_VIDEO_DRIVER": ("video_driver", lambda v: v.strip().lower() if v.strip().lower() in VIDEO_DRIVERS else ""),
+    "SDL_VIDEODRIVER": ("video_driver", lambda v: v.strip().lower() if v.strip().lower() in VIDEO_DRIVERS else ""),
 }
 
 
@@ -98,6 +107,7 @@ class Config:
     process_server: bool = True
     metal_presentation_mode: str = ""
     screen_refresh_rate: str = ""
+    video_driver: str = ""
     extra_env: dict = field(default_factory=dict)
     fast_flags: dict = field(default_factory=dict)
 
@@ -131,6 +141,7 @@ class Config:
             "menu": MENUS,
             "prefix_home": PREFIX_HOMES,
             "metal_presentation_mode": PRESENTATION_MODES,
+            "video_driver": VIDEO_DRIVERS,
         }
         for name, allowed in choices.items():
             if getattr(self, name) not in allowed:
@@ -170,10 +181,18 @@ class Config:
         extra = data.get("extra_env")
         if isinstance(extra, dict):
             extra = dict(extra)
+            adopted = set()
             for variable, (name, convert) in _ADOPTED_ENV.items():
                 value = extra.get(variable)
-                if name not in data and isinstance(value, str):
+                if not isinstance(value, str):
+                    continue
+                if name not in data:
                     data[name] = convert(extra.pop(variable))
+                    adopted.add(name)
+                elif name in adopted:
+                    # A second spelling of a variable already adopted, which
+                    # SDL would not have read.
+                    del extra[variable]
             data["extra_env"] = extra
         config = cls(**data)
         config.validate()

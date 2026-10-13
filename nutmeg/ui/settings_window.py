@@ -337,6 +337,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
             ]
         )
         self._refresh_rate = Gtk.Entry(placeholder_text="The display's", width_chars=10)
+        self._video_driver = Choice(
+            [("", "Default"), ("wayland", "Wayland"), ("x11", "X11 (XWayland)")]
+        )
         self._dead_flags = Gtk.Switch()
         self._call_return = Gtk.Switch()
         self._env_view, env_box = _text_view(90)
@@ -376,6 +379,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
             _group(
                 "Display",
                 [
+                    _row(
+                        "Display server",
+                        self._video_driver.widget,
+                        "SDL_VIDEO_DRIVER, read by SDL, which rosemary opens its windows with. "
+                        "By default SDL uses Wayland when the compositor supports the fifo-v1 "
+                        "protocol, and X11 otherwise, which is XWayland on a Wayland desktop. "
+                        "Wayland needs a Wayland session.",
+                    ),
                     _row("VSync", self._swap.widget, "ROSEMARY_SWAP_INTERVAL"),
                     _row(
                         "Presentation mode",
@@ -499,6 +510,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._process_server.set_active(config.process_server)
         self._presentation.set(config.metal_presentation_mode)
         self._refresh_rate.set_text(config.screen_refresh_rate)
+        self._video_driver.set(config.video_driver)
         self._env_view.get_buffer().set_text(format_env(config.extra_env))
         self._flags.set_flags(config.fast_flags)
 
@@ -519,6 +531,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             process_server=self._process_server.get_active(),
             metal_presentation_mode=self._presentation.get(),
             screen_refresh_rate=self._refresh_rate.get_text().strip(),
+            video_driver=self._video_driver.get(),
             extra_env=parse_env(_text_of(self._env_view)),
             fast_flags=self._flags.get_flags(),
         )

@@ -165,6 +165,7 @@ options set rosemary's environment variables, which rosemary's
 | Prefix | `ROSEMARY_PREFIX` |
 | Home folder | `ROSEMARY_PREFIX_HOME` |
 | Process server | `ROSEMARY_SERVER` (`off` when switched off) |
+| Display server | `SDL_VIDEO_DRIVER` (`wayland`, or `x11` for XWayland) |
 | VSync | `ROSEMARY_SWAP_INTERVAL` |
 | Presentation mode | `ROSEMARY_METAL_PRESENTATION_MODE` |
 | Refresh rate | `ROSEMARY_SCREEN_REFRESH_RATE` |
@@ -180,9 +181,18 @@ A setting left at "Default" leaves its variable unset, and nutmeg removes
 these variables from the environment it inherits, so the settings are the only
 place they come from. Any other variable can be added under "Extra environment
 variables". A settings file from an older nutmeg that sets
-`ROSEMARY_PREFIX_HOME`, `ROSEMARY_SERVER`, `ROSEMARY_METAL_PRESENTATION_MODE`
-or `ROSEMARY_SCREEN_REFRESH_RATE` there has the value moved to its setting when
-it is loaded.
+`ROSEMARY_PREFIX_HOME`, `ROSEMARY_SERVER`, `ROSEMARY_METAL_PRESENTATION_MODE`,
+`ROSEMARY_SCREEN_REFRESH_RATE` or `SDL_VIDEO_DRIVER` there has the value moved
+to its setting when it is loaded.
+
+rosemary has no variable for choosing between Wayland and X11. It opens its
+windows with SDL 3 and leaves the choice to SDL, so the Display server setting
+sets SDL's `SDL_VIDEO_DRIVER`. nutmeg also removes the older spelling,
+`SDL_VIDEODRIVER`, from the environment it inherits, because SDL reads it when
+`SDL_VIDEO_DRIVER` is unset. At "Default", SDL 3.4 uses Wayland when the
+compositor supports the `wp_fifo_v1` protocol and X11 otherwise, which on a
+Wayland desktop means XWayland. Choosing Wayland outside a Wayland session
+leaves rosemary unable to open a window.
 
 ## FastFlags
 

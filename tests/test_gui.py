@@ -186,6 +186,7 @@ class WindowTests(Sandbox):
         window._process_server.set_active(False)
         window._presentation.set("fifo")
         window._refresh_rate.set_text("75")
+        window._video_driver.set("x11")
         screenshot(window, "settings-butter")
         click(window, "Save")
         saved = config_module.load()
@@ -193,6 +194,7 @@ class WindowTests(Sandbox):
         self.assertEqual(saved.prefix_path, str(prefix))
         self.assertFalse(saved.process_server)
         self.assertEqual((saved.metal_presentation_mode, saved.screen_refresh_rate), ("fifo", "75"))
+        self.assertEqual(saved.video_driver, "x11")
         self.assertIn("Created", window._prefix_status.get_text())
 
         # Any other program goes in the entry under "Another program…".
