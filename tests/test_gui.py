@@ -172,6 +172,39 @@ class WindowTests(Sandbox):
         self.assertTrue(pump(lambda: not window.get_visible()))
         self.assertEqual(config_module.load(), saved)
 
+    def test_butter_runners_and_bottles_are_offered(self):
+        tool = self.butter_runner("rosemary-v1-official", 'name = "Rosemary 1 (Official Build)"\nexecutable = "bin/rosemary"\n')
+        prefix = self.butter_bottle("roblox", 'name = "Roblox"\n')
+        window = SettingsWindow(self.app)
+        window.present()
+        pump(lambda: window.get_mapped())
+        window._stack.set_visible_child_name("rosemary")
+        rosemary_choice, prefix_choice = window._rosemary_choice, window._prefix_choice
+        self.assertFalse(rosemary_choice.entry.get_parent().get_visible())
+        rosemary_choice.dropdown.set_selected(1)
+        prefix_choice.dropdown.set_selected(1)
+        window._process_server.set_active(False)
+        window._presentation.set("fifo")
+        window._refresh_rate.set_text("75")
+        screenshot(window, "settings-butter")
+        click(window, "Save")
+        saved = config_module.load()
+        self.assertEqual(saved.rosemary_path, str(tool))
+        self.assertEqual(saved.prefix_path, str(prefix))
+        self.assertFalse(saved.process_server)
+        self.assertEqual((saved.metal_presentation_mode, saved.screen_refresh_rate), ("fifo", "75"))
+        self.assertIn("Created", window._prefix_status.get_text())
+
+        # Any other program goes in the entry under "Another program…".
+        rosemary_choice.set("/opt/rosemary/target/release/rosemary")
+        self.assertTrue(rosemary_choice.entry.get_parent().get_visible())
+        window._refresh_rate.set_text("0")
+        click(window, "Save")
+        self.assertIn("screen_refresh_rate", window._message.get_text())
+        window._refresh_rate.set_text("")
+        click(window, "Save")
+        self.assertEqual(config_module.load().rosemary_path, "/opt/rosemary/target/release/rosemary")
+
     def test_an_unreadable_settings_file_is_replaced_on_save(self):
         paths.config_file().parent.mkdir(parents=True)
         paths.config_file().write_text("{broken")

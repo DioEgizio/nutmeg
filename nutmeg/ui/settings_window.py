@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from gi.repository import GLib, Gtk
 
-from .. import __version__, desktop, paths, processes, roblox, rosemary
+from .. import __version__, butter, desktop, paths, processes, roblox, rosemary
 from .. import config as config_module
 from ..config import Config, ConfigError
 from ..errors import Cancelled, NutmegError
@@ -53,6 +53,49 @@ class Choice:
 
     def set(self, value: str) -> None:
         self.widget.set_selected(self.values.index(value) if value in self.values else 0)
+
+
+class PathChoice:
+    """A drop-down over (path, label) pairs, the first of which is the empty
+    default, followed by an "other" item that shows an entry and a Browse
+    button for any other path."""
+
+    _OTHER = object()
+
+    def __init__(self, options: list[tuple[str, str]], other_label: str, other: Gtk.Widget, entry: Gtk.Entry):
+        self.values: list = [value for value, _ in options] + [self._OTHER]
+        self.dropdown = Gtk.DropDown.new_from_strings([label for _, label in options] + [other_label])
+        self.dropdown.set_halign(Gtk.Align.START)
+        self.entry = entry
+        self._other = other
+        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.widget.append(self.dropdown)
+        self.widget.append(other)
+        self.dropdown.connect("notify::selected", lambda *_a: self._sync())
+        self._sync()
+
+    def _other_selected(self) -> bool:
+        return self.values[self.dropdown.get_selected()] is self._OTHER
+
+    def _sync(self) -> None:
+        self._other.set_visible(self._other_selected())
+
+    def get(self) -> str:
+        if self._other_selected():
+            return self.entry.get_text().strip()
+        return self.values[self.dropdown.get_selected()]
+
+    def set(self, value: str) -> None:
+        if value in self.values:
+            self.dropdown.set_selected(self.values.index(value))
+            self.entry.set_text("")
+        else:
+            self.dropdown.set_selected(len(self.values) - 1)
+            self.entry.set_text(value)
+
+    def connect_changed(self, callback: Callable[[], None]) -> None:
+        self.dropdown.connect("notify::selected", lambda *_a: callback())
+        self.entry.connect("changed", lambda _e: callback())
 
 
 def _margins(widget: Gtk.Widget, size: int) -> None:
@@ -242,15 +285,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _rosemary_page(self) -> Gtk.Widget:
         found = shutil.which("rosemary")
-        self._rosemary_entry, rosemary_box = self._path_entry(
-            f"Found on PATH: {found}" if found else "Not found on PATH",
-            False,
-            "Choose the rosemary program",
+        entry, box = self._path_entry("/path/to/rosemary", False, "Choose the rosemary program")
+        self._rosemary_choice = PathChoice(
+            [("", f"rosemary on PATH ({found or 'not found'})")]
+            + [(str(runner.executable), runner.label()) for runner in butter.runners()],
+            "Another program…",
+            box,
+            entry,
         )
-        self._prefix_entry, prefix_box = self._path_entry(
-            str(paths.default_prefix()), True, "Choose the prefix folder"
+        entry, box = self._path_entry("/path/to/prefix", True, "Choose the prefix folder")
+        self._prefix_choice = PathChoice(
+            [("", f"nutmeg's own ({paths.default_prefix()})")]
+            + [(str(bottle.prefix), bottle.label()) for bottle in butter.bottles()],
+            "Another folder…",
+            box,
+            entry,
         )
-        self._prefix_entry.connect("changed", lambda _e: self._refresh_prefix())
+        self._prefix_choice.connect_changed(self._refresh_prefix)
         self._prefix_status = _label("")
         self._base_button = Gtk.Button(label="Install Darwin Base")
         self._base_button.connect("clicked", lambda _b: self._install_base())
@@ -272,6 +323,20 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         self._menu_ctrl = Gtk.Switch()
         self._confine = Gtk.Switch()
+        self._prefix_home = Choice(
+            [("", "Default"), ("prefix", "Inside the prefix"), ("host", "Your home folder")]
+        )
+        self._process_server = Gtk.Switch()
+        self._presentation = Choice(
+            [
+                ("", "Default"),
+                ("immediate", "Immediate"),
+                ("fifo", "FIFO"),
+                ("fifo_relaxed", "FIFO relaxed"),
+                ("mailbox", "Mailbox"),
+            ]
+        )
+        self._refresh_rate = Gtk.Entry(placeholder_text="The display's", width_chars=10)
         self._dead_flags = Gtk.Switch()
         self._call_return = Gtk.Switch()
         self._env_view, env_box = _text_view(90)
@@ -279,19 +344,55 @@ class SettingsWindow(Gtk.ApplicationWindow):
             _group(
                 "rosemary",
                 [
-                    _wide_row("rosemary program", rosemary_box, "Leave empty to use the rosemary on PATH."),
+                    _wide_row(
+                        "rosemary program",
+                        self._rosemary_choice.widget,
+                        "The runners Butter has installed are listed here. To add one, install "
+                        "it on Butter's Runners page, then reopen these settings.",
+                    ),
                     _wide_row(
                         "Prefix",
-                        prefix_box,
-                        "The rosemary prefix Roblox runs in (ROSEMARY_PREFIX). Leave empty for nutmeg's own.",
+                        self._prefix_choice.widget,
+                        "The rosemary prefix Roblox runs in (ROSEMARY_PREFIX). In a Butter "
+                        "bottle's prefix, Roblox shares files with that bottle's programs, and "
+                        "the settings here apply to it, not the bottle's.",
                     ),
                     prefix_actions,
+                    _row(
+                        "Home folder",
+                        self._prefix_home.widget,
+                        "ROSEMARY_PREFIX_HOME. With your home folder, the guest's "
+                        "/Users/<name> is your real home folder, so Roblox's files go there "
+                        "instead of into the prefix.",
+                    ),
+                    _row(
+                        "Process server",
+                        self._process_server,
+                        "ROSEMARY_SERVER. Lets rosemary's programs see each other. When nutmeg "
+                        "closes a running Roblox, it also stops the server (rosemary server --stop).",
+                    ),
+                ],
+            ),
+            _group(
+                "Display",
+                [
+                    _row("VSync", self._swap.widget, "ROSEMARY_SWAP_INTERVAL"),
+                    _row(
+                        "Presentation mode",
+                        self._presentation.widget,
+                        "ROSEMARY_METAL_PRESENTATION_MODE, the Vulkan present mode behind Metal. "
+                        "By default rosemary uses Mailbox, or FIFO when the driver has no Mailbox.",
+                    ),
+                    _row(
+                        "Refresh rate (Hz)",
+                        self._refresh_rate,
+                        "ROSEMARY_SCREEN_REFRESH_RATE: the refresh rate Roblox is told the display has.",
+                    ),
                 ],
             ),
             _group(
                 "Runtime",
                 [
-                    _row("VSync", self._swap.widget, "ROSEMARY_SWAP_INTERVAL"),
                     _row("Title bar", self._decorations.widget, "ROSEMARY_DECORATIONS"),
                     _row(
                         "Menus",
@@ -383,8 +484,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
     # Moving settings between the widgets and a Config.
 
     def _fill(self, config: Config) -> None:
-        self._rosemary_entry.set_text(config.rosemary_path)
-        self._prefix_entry.set_text(config.prefix_path)
+        self._rosemary_choice.set(config.rosemary_path)
+        self._prefix_choice.set(config.prefix_path)
         self._architecture.set(config.architecture)
         self._engine.set(config.engine)
         self._swap.set(config.swap_interval)
@@ -394,13 +495,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._confine.set_active(config.confine_pointer)
         self._dead_flags.set_active(config.dead_flags)
         self._call_return.set_active(config.call_return)
+        self._prefix_home.set(config.prefix_home)
+        self._process_server.set_active(config.process_server)
+        self._presentation.set(config.metal_presentation_mode)
+        self._refresh_rate.set_text(config.screen_refresh_rate)
         self._env_view.get_buffer().set_text(format_env(config.extra_env))
         self._flags.set_flags(config.fast_flags)
 
     def _gather(self) -> Config:
         config = Config(
-            rosemary_path=self._rosemary_entry.get_text().strip(),
-            prefix_path=self._prefix_entry.get_text().strip(),
+            rosemary_path=self._rosemary_choice.get(),
+            prefix_path=self._prefix_choice.get(),
             architecture=self._architecture.get(),
             engine=self._engine.get(),
             swap_interval=self._swap.get(),
@@ -410,6 +515,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
             confine_pointer=self._confine.get_active(),
             dead_flags=self._dead_flags.get_active(),
             call_return=self._call_return.get_active(),
+            prefix_home=self._prefix_home.get(),
+            process_server=self._process_server.get_active(),
+            metal_presentation_mode=self._presentation.get(),
+            screen_refresh_rate=self._refresh_rate.get_text().strip(),
             extra_env=parse_env(_text_of(self._env_view)),
             fast_flags=self._flags.get_flags(),
         )
@@ -489,7 +598,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             button.set_sensitive(not self._busy)
 
     def _prefix(self) -> Path:
-        text = self._prefix_entry.get_text().strip()
+        text = self._prefix_choice.get()
         return Path(text).expanduser() if text else paths.default_prefix()
 
     def _refresh_prefix(self) -> None:

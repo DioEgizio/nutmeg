@@ -127,6 +127,11 @@ FAKE_ROSEMARY = textwrap.dedent(
             json.dump({{"argv": args, "setup": os.environ.get("ROSEMARY_PREFIX_SETUP")}}, f)
         print("created " + directory, flush=True)
         sys.exit(0)
+    if args[:2] == ["server", "--stop"]:
+        with open(record + ".server", "a") as f:
+            f.write(os.environ.get("ROSEMARY_PREFIX", "") + "\\n")
+        print("rosemary server: no server at /run/user/rosemary/server-host", flush=True)
+        sys.exit(1)
     if args[:2] == ["prefix", "repair"]:
         print("nothing to repair", flush=True)
         sys.exit(0)
@@ -175,6 +180,28 @@ class Sandbox(unittest.TestCase):
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
         os.environ["FAKE_ROSEMARY_RECORD"] = str(self.root / "record.json")
         return path
+
+    def butter_runner(self, name: str, toml: str, flatpak: bool = False) -> Path:
+        """A runner directory shaped like Butter's, with an executable
+        `bin/rosemary` and `toml` as its runner.toml. Returns the executable."""
+        data = self.root / "home/.var/app/io.github.microlift.butter/data" if flatpak else self.root / "data"
+        directory = data / "butter/runners" / name
+        (directory / "bin").mkdir(parents=True)
+        (directory / "runner.toml").write_text(toml)
+        executable = directory / "bin/rosemary"
+        executable.write_text(FAKE_ROSEMARY.format(python=sys.executable))
+        executable.chmod(0o755)
+        return executable
+
+    def butter_bottle(self, name: str, toml: str, created: bool = True) -> Path:
+        """A bottle directory shaped like Butter's. Returns its prefix."""
+        directory = self.root / "data/butter/bottles" / name
+        directory.mkdir(parents=True)
+        (directory / "bottle.toml").write_text(toml)
+        if created:
+            (directory / "prefix/.rosemary").mkdir(parents=True)
+            (directory / "prefix/.rosemary/state.yaml").write_text("version: 1\n")
+        return directory / "prefix"
 
     def record(self, timeout: float = 10.0) -> dict:
         """What the fake rosemary recorded about its `run`. The process writes

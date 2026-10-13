@@ -139,7 +139,7 @@ class Launcher:
             build, _executable = self._ensure_build(arch)
             roblox.write_fast_flags(build.bundle(), self.config.fast_flags)
             if start:
-                self._stop_running()
+                self._stop_running(binary)
             removed = roblox.remove_versions({build.key}, set(processes.running().values()))
             for name in removed:
                 self.log.write(f"removed the old build {name}")
@@ -240,7 +240,7 @@ class Launcher:
         self.log.write(f"installed {build.key}")
         return program
 
-    def _stop_running(self) -> None:
+    def _stop_running(self, binary: Path) -> None:
         running = processes.running()
         if not running:
             return
@@ -262,6 +262,15 @@ class Launcher:
                 + ", ".join(map(str, left))
                 + ")."
             )
+        if self.config.process_server:
+            # As Butter's Stop button does: the prefix's process server goes
+            # with the client instead of lingering (ROSEMARY_SERVER_LINGER)
+            # until it times out. A status other than 0 usually means that no
+            # server was running, which is not a reason to stop the launch.
+            code = rosemary.stop_server(
+                binary, self.config, lambda line: self.log.write(f"rosemary: {line}"), self.cancel
+            )
+            self.log.write(f"rosemary server --stop exited with status {code}")
 
     def _spawn(
         self, binary: Path, url: Optional[str], build: roblox.Build

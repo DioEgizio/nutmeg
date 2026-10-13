@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -20,6 +21,10 @@ SWAP_INTERVALS = ("", "0", "1", "-1")
 DECORATIONS = ("", "client", "server")
 # ROSEMARY_MENU.
 MENUS = ("", "titlebar", "strip", "none")
+# ROSEMARY_PREFIX_HOME.
+PREFIX_HOMES = ("", "prefix", "host")
+# ROSEMARY_METAL_PRESENTATION_MODE.
+PRESENTATION_MODES = ("", "immediate", "fifo", "fifo_relaxed", "mailbox")
 
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -34,6 +39,41 @@ MANAGED_ENV = {
     "ROSEMARY_CONFINE_POINTER": "Confine pointer",
     "ROSEMARY_DEAD_FLAGS": "Dead flag elimination",
     "ROSEMARY_CALL_RETURN": "Native call return",
+    "ROSEMARY_PREFIX_HOME": "Home folder",
+    "ROSEMARY_SERVER": "Process server",
+    "ROSEMARY_METAL_PRESENTATION_MODE": "Presentation mode",
+    "ROSEMARY_SCREEN_REFRESH_RATE": "Refresh rate",
+}
+
+
+def _refresh_rate_ok(value: str) -> bool:
+    """Whether rosemary accepts `value` as ROSEMARY_SCREEN_REFRESH_RATE: a
+    finite number of hertz above zero."""
+    # Python's float() takes digit separators; Rust's f32 parser does not.
+    if "_" in value:
+        return False
+    try:
+        rate = float(value.strip())
+    except ValueError:
+        return False
+    return math.isfinite(rate) and rate > 0
+
+
+# Settings that older versions of nutmeg left to "Extra environment
+# variables". When a saved file has one there and not the setting, the value
+# moves to the setting, read the way rosemary reads the variable, so that the
+# file still loads and Roblox runs as it did.
+_ADOPTED_ENV = {
+    "ROSEMARY_PREFIX_HOME": ("prefix_home", lambda v: "host" if v == "host" else "prefix"),
+    "ROSEMARY_SERVER": ("process_server", lambda v: v not in ("off", "0", "false")),
+    "ROSEMARY_METAL_PRESENTATION_MODE": (
+        "metal_presentation_mode",
+        lambda v: v if v in PRESENTATION_MODES else "",
+    ),
+    "ROSEMARY_SCREEN_REFRESH_RATE": (
+        "screen_refresh_rate",
+        lambda v: v.strip() if _refresh_rate_ok(v) else "",
+    ),
 }
 
 
@@ -54,6 +94,10 @@ class Config:
     confine_pointer: bool = False
     dead_flags: bool = False
     call_return: bool = False
+    prefix_home: str = ""
+    process_server: bool = True
+    metal_presentation_mode: str = ""
+    screen_refresh_rate: str = ""
     extra_env: dict = field(default_factory=dict)
     fast_flags: dict = field(default_factory=dict)
 
@@ -85,13 +129,18 @@ class Config:
             "swap_interval": SWAP_INTERVALS,
             "decorations": DECORATIONS,
             "menu": MENUS,
+            "prefix_home": PREFIX_HOMES,
+            "metal_presentation_mode": PRESENTATION_MODES,
         }
         for name, allowed in choices.items():
             if getattr(self, name) not in allowed:
                 problems.append(f"{name} must be one of {', '.join(map(repr, allowed))}")
-        for name in ("menu_ctrl", "confine_pointer", "dead_flags", "call_return"):
+        for name in ("menu_ctrl", "confine_pointer", "dead_flags", "call_return", "process_server"):
             if not isinstance(getattr(self, name), bool):
                 problems.append(f"{name} must be true or false")
+        rate = self.screen_refresh_rate
+        if not isinstance(rate, str) or (rate and not _refresh_rate_ok(rate)):
+            problems.append("screen_refresh_rate must be a number of hertz above zero")
         if not isinstance(self.extra_env, dict):
             problems.append("extra_env must be an object")
         else:
@@ -117,7 +166,16 @@ class Config:
         if not isinstance(data, dict):
             raise ConfigError("the settings file must hold a JSON object")
         known = {f.name for f in fields(cls)}
-        config = cls(**{key: value for key, value in data.items() if key in known})
+        data = {key: value for key, value in data.items() if key in known}
+        extra = data.get("extra_env")
+        if isinstance(extra, dict):
+            extra = dict(extra)
+            for variable, (name, convert) in _ADOPTED_ENV.items():
+                value = extra.get(variable)
+                if name not in data and isinstance(value, str):
+                    data[name] = convert(extra.pop(variable))
+            data["extra_env"] = extra
+        config = cls(**data)
         config.validate()
         return config
 

@@ -24,8 +24,13 @@ def config_dir() -> Path:
     return _base("XDG_CONFIG_HOME", ".config") / "nutmeg"
 
 
+def data_home() -> Path:
+    """`XDG_DATA_HOME`, shared with other programs."""
+    return _base("XDG_DATA_HOME", ".local/share")
+
+
 def data_dir() -> Path:
-    return _base("XDG_DATA_HOME", ".local/share") / "nutmeg"
+    return data_home() / "nutmeg"
 
 
 def cache_dir() -> Path:
@@ -66,4 +71,4 @@ def lock_file() -> Path:
 
 
 def applications_dir() -> Path:
-    return _base("XDG_DATA_HOME", ".local/share") / "applications"
+    return data_home() / "applications"

@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import config as config_module
-from nutmeg import fastflags, paths, processes, protocol, roblox, rosemary
+from nutmeg import butter, fastflags, paths, processes, protocol, roblox, rosemary
 from nutmeg.config import Config, ConfigError
 from nutmeg.errors import NutmegError
 
@@ -119,10 +119,44 @@ class ConfigTests(Sandbox):
             {"extra_env": {"1BAD": "x"}},
             {"extra_env": {"GOOD": 1}},
             {"fast_flags": [1, 2]},
+            {"prefix_home": "elsewhere"},
+            {"process_server": "off"},
+            {"metal_presentation_mode": "vsync"},
+            {"screen_refresh_rate": 60},
+            {"screen_refresh_rate": "0"},
+            {"screen_refresh_rate": "fast"},
+            {"screen_refresh_rate": "inf"},
+            {"screen_refresh_rate": "1_000"},
         ]
         for data in bad:
             with self.subTest(data=data), self.assertRaises(ConfigError):
                 Config.from_dict(data)
+
+    def test_variables_that_became_settings_are_moved_out_of_extra_env(self):
+        config = Config.from_dict(
+            {
+                "extra_env": {
+                    "ROSEMARY_PREFIX_HOME": "host",
+                    "ROSEMARY_SERVER": "0",
+                    "ROSEMARY_METAL_PRESENTATION_MODE": "fifo",
+                    "ROSEMARY_SCREEN_REFRESH_RATE": " 59.94 ",
+                    "RUST_LOG": "debug",
+                }
+            }
+        )
+        self.assertEqual(config.prefix_home, "host")
+        self.assertFalse(config.process_server)
+        self.assertEqual(config.metal_presentation_mode, "fifo")
+        self.assertEqual(config.screen_refresh_rate, "59.94")
+        self.assertEqual(config.extra_env, {"RUST_LOG": "debug"})
+        # Values rosemary would ignore become the defaults, which it uses then.
+        config = Config.from_dict(
+            {"extra_env": {"ROSEMARY_METAL_PRESENTATION_MODE": "vsync", "ROSEMARY_SCREEN_REFRESH_RATE": "0"}}
+        )
+        self.assertEqual((config.metal_presentation_mode, config.screen_refresh_rate), ("", ""))
+        # A file that has the setting already keeps it, and the variable is refused.
+        with self.assertRaises(ConfigError):
+            Config.from_dict({"process_server": True, "extra_env": {"ROSEMARY_SERVER": "off"}})
 
     def test_unreadable_file_is_an_error_not_the_defaults(self):
         paths.config_file().parent.mkdir(parents=True)
@@ -292,9 +326,13 @@ class RosemaryTests(Sandbox):
             confine_pointer=True,
             dead_flags=True,
             call_return=True,
+            prefix_home="host",
+            process_server=False,
+            metal_presentation_mode="immediate",
+            screen_refresh_rate="144",
             extra_env={"RUST_BACKTRACE": "1"},
         )
-        env = rosemary.run_env(config, {})
+        env = rosemary.run_env(config, {"ROSEMARY_SCREEN_REFRESH_RATE": "30"})
         self.assertEqual(
             {k: v for k, v in env.items() if k != "ROSEMARY_PREFIX"},
             {
@@ -305,6 +343,10 @@ class RosemaryTests(Sandbox):
                 "ROSEMARY_CONFINE_POINTER": "1",
                 "ROSEMARY_DEAD_FLAGS": "1",
                 "ROSEMARY_CALL_RETURN": "1",
+                "ROSEMARY_PREFIX_HOME": "host",
+                "ROSEMARY_SERVER": "off",
+                "ROSEMARY_METAL_PRESENTATION_MODE": "immediate",
+                "ROSEMARY_SCREEN_REFRESH_RATE": "144",
                 "RUST_BACKTRACE": "1",
             },
         )
@@ -345,6 +387,27 @@ class RosemaryTests(Sandbox):
         with self.assertRaises(NutmegError):
             rosemary.find_rosemary(Config(rosemary_path=str(self.root)))
 
+    def test_find_rosemary_with_butter(self):
+        with mock.patch.dict(os.environ, {"PATH": str(self.root / "nowhere")}):
+            with self.assertRaisesRegex(NutmegError, "Install a rosemary runner with Butter"):
+                rosemary.find_rosemary(Config())
+            tool = self.butter_runner("rosemary-v1", 'name = "Rosemary 1"\nexecutable = "bin/rosemary"\n')
+            with self.assertRaisesRegex(NutmegError, "Choose one of the runners Butter has installed"):
+                rosemary.find_rosemary(Config())
+            self.assertEqual(rosemary.find_rosemary(Config(rosemary_path=str(tool))), tool)
+            tool.unlink()
+            with self.assertRaisesRegex(NutmegError, "Butter runner rosemary-v1 is no longer installed"):
+                rosemary.find_rosemary(Config(rosemary_path=str(tool)))
+
+    def test_stop_server(self):
+        tool = self.fake_rosemary()
+        lines = []
+        code = rosemary.stop_server(tool, Config(), lines.append, threading.Event())
+        self.assertEqual(code, 1)
+        self.assertIn("no server", lines[0])
+        stopped = Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".server").read_text()
+        self.assertEqual(stopped, f"{paths.default_prefix()}\n")
+
     def test_create_prefix(self):
         tool = self.fake_rosemary()
         prefix = self.root / "prefix"
@@ -365,6 +428,57 @@ class RosemaryTests(Sandbox):
         os.environ["FAKE_ROSEMARY_PREFIX_FAIL"] = "1"
         with self.assertRaisesRegex(NutmegError, "could not download the base"):
             rosemary.create_prefix(tool, self.root / "third", "x86_64", lines.append, threading.Event())
+
+
+class ButterTests(Sandbox):
+    def test_manifest(self):
+        path = self.root / "runner.toml"
+        path.write_text(
+            'name = "Rosemary \\"dev\\" \\u00e9"\n'
+            "executable = 'C:\\odd\\path' # comment\n"
+            "installed = 1760000000\n"
+            "\n"
+            "[env]\n"
+            'name = "from a table"\n'
+        )
+        self.assertEqual(
+            butter.read_manifest(path),
+            {"name": 'Rosemary "dev" \u00e9', "executable": "C:\\odd\\path"},
+        )
+        self.assertEqual(butter.read_manifest(self.root / "missing.toml"), {})
+
+    def test_runners(self):
+        self.assertEqual(butter.runners(), [])
+        self.butter_runner("custom", 'name = "Mine"\nkind = "custom"\nexecutable = "bin/rosemary"\n')
+        self.butter_runner("rosemary-v0-9-0", 'name = "Rosemary 0.9.0"\nkind = "source"\ntag = "v0.9.0"\nexecutable = "bin/rosemary"\n')
+        self.butter_runner(
+            "rosemary-v0-10-0-official",
+            'name = "Rosemary 0.10.0 (Official Build)"\nkind = "binary"\ntag = "v0.10.0"\nexecutable = "bin/rosemary"\n',
+            flatpak=True,
+        )
+        self.butter_runner("rosemary-git-abc", 'name = "Rosemary dev abc"\nkind = "source"\nexecutable = "bin/rosemary"\n')
+        self.butter_runner(".rosemary-v2-partial", 'name = "Unpacking"\nexecutable = "bin/rosemary"\n')
+        self.butter_runner("rosemary-v3", 'name = "No binary"\nexecutable = "bin/gone"\n')
+        found = butter.runners()
+        self.assertEqual(
+            [r.label() for r in found],
+            [
+                "Rosemary 0.10.0 (Official Build) (Butter Flatpak)",
+                "Rosemary 0.9.0 (Butter)",
+                "Rosemary dev abc (Butter)",
+                "Mine (Butter)",
+            ],
+        )
+        self.assertEqual(found[1].executable, self.root / "data/butter/runners/rosemary-v0-9-0/bin/rosemary")
+        self.assertEqual(
+            butter.runner_directory(found[1].executable), self.root / "data/butter/runners/rosemary-v0-9-0"
+        )
+        self.assertIsNone(butter.runner_directory(self.root / "bin/rosemary"))
+
+    def test_bottles(self):
+        prefix = self.butter_bottle("roblox", 'name = "Roblox"\nrunner = "rosemary-v1"\n\n[env]\n')
+        self.butter_bottle("new", 'name = "Not created"\n', created=False)
+        self.assertEqual(butter.bottles(), [butter.Bottle("Roblox", prefix, False)])
 
 
 class ProcessTests(Sandbox):

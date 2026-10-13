@@ -1,7 +1,7 @@
 """Running rosemary, as its docs/usage.md describes it.
 
-Roblox runs as `rosemary run [--native|--emulated] <Mach-O> [args...]` in a
-prefix of its own, named with ROSEMARY_PREFIX. A join link is passed the way
+Roblox runs as `rosemary run [--native|--emulated] <Roblox.app> [args...]` in
+a prefix of its own, named with ROSEMARY_PREFIX. A join link is passed the way
 rosemary's tools/install-url-handler.sh passes one, as `-protocolString <url>`:
 the macOS client reads that argument, and rosemary's AppKit also hands the URL
 to the application delegate's `application:openURLs:`.
@@ -19,6 +19,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from . import butter
 from .config import MANAGED_ENV, Config
 from .errors import Cancelled, NutmegError
 
@@ -68,18 +69,30 @@ def build_arch(config: Config) -> str:
 
 
 def find_rosemary(config: Config) -> Path:
+    """The rosemary program the settings choose: a Butter runner's or another
+    executable, or else the one on PATH."""
     chosen = config.rosemary()
     if chosen is not None:
         if not chosen.is_file() or not os.access(chosen, os.X_OK):
+            runner = butter.runner_directory(chosen)
+            if runner is not None:
+                raise NutmegError(
+                    f"The Butter runner {runner.name} is no longer installed. Choose "
+                    "another runner in Settings.",
+                    settings=True,
+                )
             raise NutmegError(f"{chosen} is not an executable file.", settings=True)
         return chosen
     found = shutil.which("rosemary")
     if found is None:
-        raise NutmegError(
-            "rosemary was not found on PATH. Build it (cargo build --release --bin "
-            "rosemary) and choose target/release/rosemary in Settings.",
-            settings=True,
-        )
+        if butter.runners():
+            hint = "Choose one of the runners Butter has installed in Settings."
+        else:
+            hint = (
+                f"Install a rosemary runner with Butter ({butter.WEBSITE}) and choose "
+                "it in Settings, or choose a rosemary program you built."
+            )
+        raise NutmegError(f"rosemary was not found on PATH. {hint}", settings=True)
     return Path(found)
 
 
@@ -196,6 +209,16 @@ def repair_prefix(
     return _run_captured(argv, dict(os.environ), output, cancel)
 
 
+def stop_server(
+    rosemary: Path, config: Config, output: Callable[[str], None], cancel: threading.Event
+) -> int:
+    """`rosemary server --stop`, which asks the prefix's process server to
+    exit, as Butter's Stop button does. Returns the exit status, which is not
+    zero when no server was running."""
+    argv = [str(rosemary), "server", "--stop"]
+    return _run_captured(argv, run_env(config), output, cancel)
+
+
 def run_env(config: Config, base: dict[str, str] | None = None) -> dict[str, str]:
     """The environment for `rosemary run`.
 
@@ -222,6 +245,14 @@ def run_env(config: Config, base: dict[str, str] | None = None) -> dict[str, str
         env["ROSEMARY_DEAD_FLAGS"] = "1"
     if config.call_return:
         env["ROSEMARY_CALL_RETURN"] = "1"
+    if config.prefix_home:
+        env["ROSEMARY_PREFIX_HOME"] = config.prefix_home
+    if not config.process_server:
+        env["ROSEMARY_SERVER"] = "off"
+    if config.metal_presentation_mode:
+        env["ROSEMARY_METAL_PRESENTATION_MODE"] = config.metal_presentation_mode
+    if config.screen_refresh_rate:
+        env["ROSEMARY_SCREEN_REFRESH_RATE"] = config.screen_refresh_rate
     return env
 
 
