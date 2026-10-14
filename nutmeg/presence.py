@@ -32,7 +32,7 @@ from typing import Callable, Optional
 
 from . import discord, paths, processes
 
-CLIENT_ID = "826716557051691068"
+CLIENT_ID = "363445589247131668"
 
 UNIVERSE_URL = "https://apis.roblox.com/universes/v1/places/{place}/universe"
 GAMES_URL = "https://games.roblox.com/v1/games?universeIds={universe}"
