@@ -188,6 +188,7 @@ class WindowTests(Sandbox):
         window._refresh_rate.set_text("75")
         window._video_driver.set("x11")
         window._discord.set_active(False)
+        window._mangohud.set_active(True)
         screenshot(window, "settings-butter")
         click(window, "Save")
         saved = config_module.load()
@@ -197,12 +198,15 @@ class WindowTests(Sandbox):
         self.assertEqual((saved.metal_presentation_mode, saved.screen_refresh_rate), ("fifo", "75"))
         self.assertEqual(saved.video_driver, "x11")
         self.assertFalse(saved.discord_presence)
+        self.assertEqual((saved.use_gamemode, saved.use_mangohud), (False, True))
         self.assertIn("Created", window._prefix_status.get_text())
         # The bottle's settings replace nutmeg's runtime settings, so those are greyed out.
         self.assertTrue(window._bottle_note.get_visible())
         self.assertIn("Roblox bottle's settings", window._bottle_note.get_text())
         self.assertFalse(window._engine.widget.get_sensitive())
         self.assertFalse(window._swap.widget.is_sensitive())
+        # Butter has nothing for GameMode or MangoHud, so they stay usable.
+        self.assertTrue(window._mangohud.is_sensitive())
         screenshot(window, "settings-bottle")
         prefix_choice.dropdown.set_selected(0)
         self.assertFalse(window._bottle_note.get_visible())

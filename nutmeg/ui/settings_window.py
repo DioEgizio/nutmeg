@@ -128,6 +128,11 @@ def _row(title: str, widget: Gtk.Widget, subtitle: Optional[str] = None) -> Gtk.
     return box
 
 
+def _missing(program: str) -> str:
+    """A note for a setting's subtitle when the program it runs is not on PATH."""
+    return "" if shutil.which(program) else f" {program} was not found on PATH."
+
+
 def _wide_row(title: str, widget: Gtk.Widget, subtitle: Optional[str] = None) -> Gtk.Widget:
     """A setting with its control underneath, for paths and text."""
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -330,6 +335,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         self._menu_ctrl = Gtk.Switch()
         self._confine = Gtk.Switch()
+        self._gamemode = Gtk.Switch()
+        self._mangohud = Gtk.Switch()
         self._prefix_home = Choice(
             [("", "Default"), ("prefix", "Inside the prefix"), ("host", "Your home folder")]
         )
@@ -435,6 +442,24 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 ],
                 "These set rosemary's environment variables, described in its docs/usage.md.",
             ),
+            _group(
+                "Performance",
+                [
+                    _row(
+                        "Run with GameMode",
+                        self._gamemode,
+                        "Starts Roblox with gamemoderun, which asks Feral's GameMode to "
+                        "tune the system while Roblox runs." + _missing("gamemoderun"),
+                    ),
+                    _row(
+                        "Show the MangoHud overlay",
+                        self._mangohud,
+                        "Starts Roblox with mangohud, which draws the frame rate and other "
+                        "statistics over the game." + _missing("mangohud"),
+                    ),
+                ],
+                "These also apply in a Butter bottle's prefix, which has no settings for them.",
+            ),
             self._own_group(
                 "Emulation",
                 [
@@ -537,6 +562,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._menu.set(config.menu)
         self._menu_ctrl.set_active(config.menu_ctrl)
         self._confine.set_active(config.confine_pointer)
+        self._gamemode.set_active(config.use_gamemode)
+        self._mangohud.set_active(config.use_mangohud)
         self._dead_flags.set_active(config.dead_flags)
         self._call_return.set_active(config.call_return)
         self._prefix_home.set(config.prefix_home)
@@ -559,6 +586,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
             menu=self._menu.get(),
             menu_ctrl=self._menu_ctrl.get_active(),
             confine_pointer=self._confine.get_active(),
+            use_gamemode=self._gamemode.get_active(),
+            use_mangohud=self._mangohud.get_active(),
             dead_flags=self._dead_flags.get_active(),
             call_return=self._call_return.get_active(),
             prefix_home=self._prefix_home.get(),

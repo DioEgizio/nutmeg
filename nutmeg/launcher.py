@@ -304,7 +304,7 @@ class Launcher:
                 start_new_session=True,
             )
         except OSError as e:
-            raise NutmegError(f"Could not start {binary}: {e.strerror}", settings=True) from e
+            raise NutmegError(f"Could not start {argv[0]}: {e.strerror}", settings=True) from e
         self.log.write(f"started process {process.pid}")
         if self.config.discord_presence:
             try:

@@ -163,6 +163,8 @@ class ConfigTests(Sandbox):
             {"screen_refresh_rate": "inf"},
             {"screen_refresh_rate": "1_000"},
             {"video_driver": "xwayland"},
+            {"use_gamemode": 1},
+            {"use_mangohud": "true"},
         ]
         for data in bad:
             with self.subTest(data=data), self.assertRaises(ConfigError):
@@ -440,6 +442,31 @@ class RosemaryTests(Sandbox):
             rosemary.run_argv(tool, Config(engine="emulated"), program, "roblox-player:1"),
             ["/bin/rosemary", "run", "--emulated", str(program), "-protocolString", "roblox-player:1"],
         )
+
+    def test_wrappers(self):
+        program = Path("/data/versions/v/Roblox.app")
+        tool = Path("/bin/rosemary")
+        found = {"gamemoderun": "/usr/bin/gamemoderun", "mangohud": "/usr/bin/mangohud"}
+        with mock.patch.object(rosemary.shutil, "which", side_effect=found.get):
+            self.assertEqual(
+                rosemary.run_argv(tool, Config(use_mangohud=True), program, None),
+                ["/usr/bin/mangohud", "/bin/rosemary", "run", str(program)],
+            )
+            self.assertEqual(
+                rosemary.run_argv(tool, Config(use_gamemode=True, use_mangohud=True, engine="native"), program, None),
+                ["/usr/bin/gamemoderun", "/usr/bin/mangohud", "/bin/rosemary", "run", "--native", str(program)],
+            )
+            # They apply in a Butter bottle's prefix too.
+            prefix = self.butter_bottle("roblox", BOTTLE_TOML)
+            self.assertEqual(
+                rosemary.run_argv(tool, Config(prefix_path=str(prefix), use_gamemode=True), program, None),
+                ["/usr/bin/gamemoderun", "/bin/rosemary", "run", "--emulated", str(program)],
+            )
+        with mock.patch.object(rosemary.shutil, "which", return_value=None):
+            self.assertEqual(rosemary.run_argv(tool, Config(), program, None), ["/bin/rosemary", "run", str(program)])
+            with self.assertRaisesRegex(NutmegError, "gamemoderun was not found on PATH") as caught:
+                rosemary.run_argv(tool, Config(use_gamemode=True), program, None)
+            self.assertTrue(caught.exception.settings)
 
     def test_build_choice(self):
         with mock.patch.object(rosemary, "host_arch", return_value="x86_64"):

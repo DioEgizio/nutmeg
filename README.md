@@ -176,8 +176,9 @@ in the bottle:
 The bottle's `backend` also decides `rosemary run --native` or
 `--emulated`. nutmeg's own runtime, display and emulation settings, its extra
 environment variables and its Execution setting are not used in a bottle's
-prefix; the settings window greys them out. nutmeg's Build setting and
-FastFlags still apply, because Butter has nothing for them. Butter does not
+prefix; the settings window greys them out. nutmeg's Build setting,
+FastFlags, GameMode and MangoHud still apply, because Butter has nothing for
+them. Butter does not
 start Roblox, so Roblox does not appear in Butter's Process Manager.
 
 ## Settings
@@ -220,6 +221,19 @@ sets SDL's `SDL_VIDEO_DRIVER`. nutmeg also removes the older spelling,
 compositor supports the `wp_fifo_v1` protocol and X11 otherwise, which on a
 Wayland desktop means XWayland. Choosing Wayland outside a Wayland session
 leaves rosemary unable to open a window.
+
+The Performance settings start Roblox through other programs, found on
+`PATH`, as `gamemoderun mangohud rosemary run …`:
+
+| Setting | Program |
+| ------- | ------- |
+| Run with GameMode | `gamemoderun`, from [GameMode](https://github.com/FeralInteractive/gamemode) |
+| Show the MangoHud overlay | `mangohud`, from [MangoHud](https://github.com/flightlessmango/MangoHud) |
+
+Both set their variables and replace themselves with the command they are
+given, so the process nutmeg watches is still rosemary's. MangoHud draws its
+overlay through Vulkan, which rosemary's Metal runs on. If a switched-on
+program is not installed, the launch stops and says so.
 
 ## Discord
 

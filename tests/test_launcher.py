@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import launcher as launcher_module
-from nutmeg import paths, roblox, rosemary
+from nutmeg import paths, processes, roblox, rosemary
 from nutmeg.config import Config
 from nutmeg.errors import Cancelled, NutmegError
 from nutmeg.launcher import Launcher
@@ -153,6 +153,34 @@ class LaunchTests(Sandbox):
         self.config.discord_presence = False
         self.launch()
         self.presence_helper.assert_not_called()
+
+    def test_gamemode_and_mangohud_wrap_rosemary(self):
+        # Stand-ins that note that they ran, then exec the command as the
+        # real gamemoderun and mangohud do.
+        bin_dir = self.root / "wrappers"
+        bin_dir.mkdir()
+        ran = self.root / "wrapped"
+        for name in ("gamemoderun", "mangohud"):
+            script = bin_dir / name
+            script.write_text(f'#!/bin/sh\necho {name} >> "{ran}"\nexec "$@"\n')
+            script.chmod(0o755)
+        os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
+        self.config.use_gamemode = True
+        self.config.use_mangohud = True
+        launched, _, _ = self.launch()
+        build = roblox.Build(GUID_A, "0.700.0.1", "x86_64")
+        self.assertEqual(self.record()["argv"], ["run", str(build.bundle()), "-protocolString", URL])
+        self.assertEqual(ran.read_text().split(), ["gamemoderun", "mangohud"])
+        # The exec leaves rosemary in the process nutmeg started.
+        self.assertEqual(list(processes.running()), [launched.process.pid])
+        log = self.wait_for_text(launched.log, "guest output")
+        self.assertIn(f"running: {bin_dir}/gamemoderun {bin_dir}/mangohud {self.tool} run", log)
+
+    def test_a_missing_wrapper_stops_the_launch(self):
+        os.environ["PATH"] = str(self.root / "empty")
+        self.config.use_mangohud = True
+        with self.assertRaisesRegex(NutmegError, "mangohud was not found on PATH"):
+            self.launch()
 
     def test_no_server_to_stop_when_it_is_off(self):
         self.config.process_server = False

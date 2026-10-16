@@ -281,10 +281,39 @@ def run_env(config: Config, base: dict[str, str] | None = None) -> dict[str, str
     return env
 
 
+# Programs `rosemary run` can be started through, as `gamemoderun mangohud
+# rosemary run …`: the setting that switches each on, its program, and its
+# name. Both set their variables and exec the command they are given, so the
+# process nutmeg starts and watches is still rosemary's.
+WRAPPERS = (
+    ("use_gamemode", "gamemoderun", "GameMode"),
+    ("use_mangohud", "mangohud", "MangoHud"),
+)
+
+
+def wrappers(config: Config) -> list[str]:
+    """The programs the settings start Roblox through, found on PATH. They
+    apply in a Butter bottle's prefix too, because Butter has no setting for
+    them."""
+    argv = []
+    for name, program, label in WRAPPERS:
+        if not getattr(config, name):
+            continue
+        found = shutil.which(program)
+        if found is None:
+            raise NutmegError(
+                f"{label} is switched on in Settings, but {program} was not found on "
+                f"PATH. Install {label}, or switch it off in Settings.",
+                settings=True,
+            )
+        argv.append(found)
+    return argv
+
+
 def run_argv(rosemary: Path, config: Config, app: Path, url: str | None) -> list[str]:
     """The command line that starts Roblox. `app` is the Roblox.app folder;
     rosemary finds the executable inside it."""
-    argv = [str(rosemary), "run"]
+    argv = wrappers(config) + [str(rosemary), "run"]
     mode, _where = engine(config)
     if mode == "native":
         argv.append("--native")
