@@ -72,3 +72,9 @@ def lock_file() -> Path:
 
 def applications_dir() -> Path:
     return data_home() / "applications"
+
+
+def icons_dir() -> Path:
+    """The user's part of the hicolor icon theme, which every icon theme
+    falls back to."""
+    return data_home() / "icons" / "hicolor"

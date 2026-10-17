@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import launcher as launcher_module
-from nutmeg import paths, processes, roblox, rosemary
+from nutmeg import desktop, paths, processes, roblox, rosemary
 from nutmeg.config import Config
 from nutmeg.errors import Cancelled, NutmegError
 from nutmeg.launcher import Launcher
@@ -188,6 +188,32 @@ class LaunchTests(Sandbox):
         self.launch()
         self.assertFalse(Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".server").exists())
         self.assertEqual(self.record()["env"]["ROSEMARY_SERVER"], "off")
+
+    def install_entry(self) -> Path:
+        """The player entry as installing it before any launch writes it."""
+        entry = paths.applications_dir() / desktop.PLAYER_ID
+        entry.parent.mkdir(parents=True)
+        entry.write_text(desktop.player_entry(["nutmeg"], desktop.FALLBACK_ICON))
+        return entry
+
+    def test_the_menu_entry_gets_roblox_icon(self):
+        entry = self.install_entry()
+        _, _, launcher = self.launch(start=False)
+        self.assertIn(f"\nIcon={desktop.PLAYER_ICON}\n", entry.read_text())
+        self.assertTrue((paths.icons_dir() / f"256x256/apps/{desktop.PLAYER_ICON}.png").is_file())
+        self.assertIn(f"the menu entry now has the icon of {GUID_A}-x86_64", launcher.log.path.read_text())
+
+    def test_no_icons_without_the_menu_entries(self):
+        self.launch(start=False)
+        self.assertFalse(paths.icons_dir().exists())
+
+    def test_a_build_without_an_icon_still_starts(self):
+        self.server.publish(GUID_A, "0.700.0.1", {"x86_64": roblox_zip(icon=False)}, ["b"])
+        entry = self.install_entry()
+        launched, _, _ = self.launch()
+        self.assertIsNone(launched.process.poll())
+        self.assertIn(f"\nIcon={desktop.FALLBACK_ICON}\n", entry.read_text())
+        self.assertIn("could not update the menu entry's icon: ", launched.log.read_text())
 
     def test_update_replaces_the_old_build(self):
         self.launch(start=False)

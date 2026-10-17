@@ -81,9 +81,11 @@ def check_version_output(command: list[str], version: str) -> None:
 
 
 def check_wheel(wheel: Path, tree: Path, version: str, scratch: Path) -> None:
+    # Every file of the package, so that data such as the icon is checked too.
     sources = {
         path.relative_to(tree).as_posix()
-        for path in (tree / PACKAGE).rglob("*.py")
+        for path in (tree / PACKAGE).rglob("*")
+        if path.is_file()
     }
     with zipfile.ZipFile(wheel) as archive:
         missing = sources - set(archive.namelist())

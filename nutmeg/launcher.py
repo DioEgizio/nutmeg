@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Protocol
 
-from . import __version__, paths, presence, processes, roblox, rosemary
+from . import __version__, desktop, paths, presence, processes, roblox, rosemary
 from .config import Config
 from .errors import Cancelled, NutmegError
 from .protocol import redact
@@ -141,6 +141,7 @@ class Launcher:
             self._ensure_prefix(binary, prefix, arch)
             build, _executable = self._ensure_build(arch)
             roblox.write_fast_flags(build.bundle(), self.config.fast_flags)
+            self._update_icon(build)
             if start:
                 self._stop_running(binary)
             removed = roblox.remove_versions({build.key}, set(processes.running().values()))
@@ -213,6 +214,16 @@ class Launcher:
             program = self._install(latest)
         roblox.save_installed(latest)
         return latest, program
+
+    def _update_icon(self, build: roblox.Build) -> None:
+        """Give the menu entry this build's icon, which also replaces the
+        stand-in an entry installed before Roblox has. A failure is only
+        logged: it is no reason to stop the launch."""
+        try:
+            if desktop.use_roblox_icon(build.bundle()):
+                self.log.write(f"the menu entry now has the icon of {build.key}")
+        except (NutmegError, OSError) as e:
+            self.log.write(f"could not update the menu entry's icon: {e}")
 
     def _install(self, build: roblox.Build) -> Path:
         title = f"Downloading Roblox {build.label}…"

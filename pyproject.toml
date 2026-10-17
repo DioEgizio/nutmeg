@@ -21,7 +21,10 @@ classifiers = [
 nutmeg = "nutmeg.cli:main"
 
 [tool.setuptools]
-packages = ["nutmeg", "nutmeg.ui"]
+packages = ["nutmeg", "nutmeg.data", "nutmeg.ui"]
+
+[tool.setuptools.package-data]
+"nutmeg.data" = ["*.svg"]
 
 [tool.setuptools.dynamic]
 version = { attr = "nutmeg.__version__" }

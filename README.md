@@ -64,7 +64,10 @@ python3 nutmeg-0.1.0.dev202609302341.pyz
    rosemary on `PATH`, or "Another program…" for any other file. Click Save.
 4. On the Integration page, click Install. This adds "Roblox (nutmeg)" and
    "nutmeg Settings" to the application menu, and makes nutmeg the handler
-   for `roblox-player:` and `roblox:` links.
+   for `roblox-player:` and `roblox:` links. Right-clicking "Roblox (nutmeg)"
+   also offers nutmeg Settings. "Roblox (nutmeg)" gets Roblox's own icon,
+   taken from the installed client's `AppIcon.icns`; until the first launch
+   installs the client, it shows a generic games icon.
 
 After that, the Play button on roblox.com starts Roblox through nutmeg.
 
@@ -295,6 +298,8 @@ it applies.
 | `~/.local/share/nutmeg/prefix/` | the rosemary prefix, including Roblox's own files under `root/Users/<name>/` |
 | `~/.cache/nutmeg/downloads/` | downloads in progress |
 | `~/.local/state/nutmeg/logs/` | one log per launch, with nutmeg's steps and everything rosemary and Roblox print |
+| `~/.local/share/applications/io.github.frolleks.Nutmeg*.desktop` | the menu entries |
+| `~/.local/share/icons/hicolor/*/apps/io.github.frolleks.Nutmeg*` | their icons |
 
 Each path follows the matching `XDG_*_HOME` variable when it is set. The logs
 hide the authentication ticket in `roblox-player:` links; the last 20 are kept.

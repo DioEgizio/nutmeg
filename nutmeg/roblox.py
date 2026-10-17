@@ -234,18 +234,59 @@ def _extract_member(archive: zipfile.ZipFile, member: zipfile.ZipInfo, root: Pat
         shutil.copyfileobj(source, out, _CHUNK)
 
 
-def executable(bundle: Path) -> Path:
-    """The main executable an app bundle's Info.plist names."""
+def _plist_file_name(bundle: Path, key: str, what: str) -> str:
+    """A file name the bundle's Info.plist gives under `key`."""
     info = bundle / "Contents" / "Info.plist"
     try:
         with open(info, "rb") as f:
             plist = plistlib.load(f)
     except (OSError, ValueError, xml.parsers.expat.ExpatError) as e:
         raise NutmegError(f"Could not read {info}: {e}") from e
-    name = plist.get("CFBundleExecutable") if isinstance(plist, dict) else None
+    name = plist.get(key) if isinstance(plist, dict) else None
     if not isinstance(name, str) or not name or "/" in name or name in (".", ".."):
-        raise NutmegError(f"{info} does not name an executable")
-    return bundle / "Contents" / "MacOS" / name
+        raise NutmegError(f"{info} does not name {what}")
+    return name
+
+
+def executable(bundle: Path) -> Path:
+    """The main executable an app bundle's Info.plist names."""
+    return bundle / "Contents" / "MacOS" / _plist_file_name(bundle, "CFBundleExecutable", "an executable")
+
+
+def icon_file(bundle: Path) -> Path:
+    """The .icns file an app bundle's Info.plist names as its icon."""
+    name = _plist_file_name(bundle, "CFBundleIconFile", "an icon")
+    if not name.endswith(".icns"):
+        name += ".icns"
+    return bundle / "Contents" / "Resources" / name
+
+
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def icns_pngs(data: bytes) -> dict[int, bytes]:
+    """The square PNG images in an .icns file, by width. The file is a list of
+    (4-byte type, 4-byte big-endian length that counts these 8 bytes, data)
+    after its own 8-byte header. The other formats it can hold (raw ARGB,
+    JPEG 2000 and the older packed ones) are left out."""
+    if data[:4] != b"icns" or len(data) < 8:
+        return {}
+    end = min(len(data), int.from_bytes(data[4:8], "big"))
+    found: dict[int, bytes] = {}
+    offset = 8
+    while offset + 8 <= end:
+        length = int.from_bytes(data[offset + 4 : offset + 8], "big")
+        if length < 8 or offset + length > end:
+            break
+        body = data[offset + 8 : offset + length]
+        offset += length
+        # The PNG signature, then the IHDR chunk's length, type, width and height.
+        if len(body) < 24 or body[:8] != _PNG_SIGNATURE or body[12:16] != b"IHDR":
+            continue
+        width = int.from_bytes(body[16:20], "big")
+        if width == int.from_bytes(body[20:24], "big") and width not in found:
+            found[width] = body
+    return found
 
 
 def macho_architectures(path: Path) -> set[str]:

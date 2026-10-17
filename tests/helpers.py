@@ -19,6 +19,7 @@ import threading
 import time
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 
 from unittest import mock
@@ -44,16 +45,54 @@ def _add(archive: zipfile.ZipFile, name: str, data: bytes, mode: int) -> None:
     archive.writestr(info, data)
 
 
-def roblox_zip(arch: str = "x86_64", extra: list[tuple[str, bytes, int]] | None = None) -> bytes:
-    """A zip shaped like Roblox's: RobloxPlayer.app with 0777 and 0666 modes."""
+def png(width: int, height: int | None = None, rgba: bytes = b"\xe2\x23\x1a\xff") -> bytes:
+    """A PNG of one colour."""
+    height = width if height is None else height
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = (b"\0" + rgba * width) * height
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+def icns(entries: list[tuple[bytes, bytes]]) -> bytes:
+    """An .icns file holding (type, data) entries."""
+    body = b"".join(kind + struct.pack(">I", len(data) + 8) + data for kind, data in entries)
+    return b"icns" + struct.pack(">I", len(body) + 8) + body
+
+
+# Shaped like the AppIcon.icns in Roblox 0.741: PNGs at 256 (128@2x), 32
+# (16@2x) and 128 pixels, and a 16-pixel image in raw ARGB.
+ROBLOX_ICONS = {256: png(256), 32: png(32), 128: png(128)}
+ROBLOX_ICNS = icns(
+    [
+        (b"ic13", ROBLOX_ICONS[256]),
+        (b"ic11", ROBLOX_ICONS[32]),
+        (b"ic04", b"ARGB" + b"\xff" * 64),
+        (b"ic07", ROBLOX_ICONS[128]),
+    ]
+)
+
+
+def roblox_zip(
+    arch: str = "x86_64", extra: list[tuple[str, bytes, int]] | None = None, icon: bool = True
+) -> bytes:
+    """A zip shaped like Roblox's: RobloxPlayer.app with 0777 and 0666 modes,
+    and with the AppIcon.icns its Info.plist names unless not `icon`."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         _add(archive, "RobloxPlayer.app/", b"", 0o40755)
         _add(archive, "RobloxPlayer.app/Contents/", b"", 0o40755)
-        plist = plistlib.dumps({"CFBundleExecutable": "RobloxPlayer", "CFBundleIdentifier": "com.roblox.RobloxPlayer"})
-        _add(archive, "RobloxPlayer.app/Contents/Info.plist", plist, 0o100666)
+        info = {"CFBundleExecutable": "RobloxPlayer", "CFBundleIdentifier": "com.roblox.RobloxPlayer"}
+        if icon:
+            info["CFBundleIconFile"] = "AppIcon"
+        _add(archive, "RobloxPlayer.app/Contents/Info.plist", plistlib.dumps(info), 0o100666)
         _add(archive, "RobloxPlayer.app/Contents/MacOS/RobloxPlayer", macho(arch), 0o100777)
         _add(archive, "RobloxPlayer.app/Contents/Resources/content.txt", b"content" * 100, 0o100666)
+        if icon:
+            _add(archive, "RobloxPlayer.app/Contents/Resources/AppIcon.icns", ROBLOX_ICNS, 0o100666)
         for name, data, mode in extra or []:
             _add(archive, name, data, mode)
     return buffer.getvalue()
