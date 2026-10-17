@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from nutmeg import processes, updater
+from nutmeg import __version__, processes, updater
 from nutmeg.errors import NutmegError
 
 from helpers import ROOT, Sandbox, Server, fake_wheel, nutmeg_pyz
@@ -258,7 +258,7 @@ class RestartTests(Sandbox):
         code = "from nutmeg import updater; updater.restart(['--version'], '0.0.1')"
         env = dict(os.environ, PYTHONPATH=str(ROOT))
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, cwd="/")
-        self.assertEqual(result.stdout.strip(), "nutmeg 0.1.0")
+        self.assertEqual(result.stdout.strip(), f"nutmeg {__version__}")
 
 
 if __name__ == "__main__":

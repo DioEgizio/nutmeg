@@ -21,6 +21,10 @@ from nutmeg.launcher import Launcher
 
 from helpers import Sandbox, Server, nutmeg_pyz, roblox_zip
 
+# The release the update tests offer: the one after this copy's version.
+_major_minor, _patch = __version__.rsplit(".", 1)
+NEWER = f"{_major_minor}.{int(_patch) + 1}"
+
 GUID_A = "version-aaaaaaaaaaaaaaaa"
 GUID_B = "version-bbbbbbbbbbbbbbbb"
 URL = "roblox-player:1+launchmode:play+gameinfo:ticket+launchtime:1+browsertrackerid:2"
@@ -301,12 +305,13 @@ class LaunchTests(Sandbox):
         self.assertIn("could not update the menu entry's icon: ", launched.log.read_text())
 
     def offer_nutmeg(self, sums=None) -> Path:
-        """A nutmeg .pyz to update, and the release nutmeg 0.2.0 on the
-        stand-in GitHub, which this copy (a release, 0.1.0) updates to.
-        Restarting raises `Restarted`."""
+        """A nutmeg .pyz to update, and the release after it, NEWER, on the
+        stand-in GitHub, which this copy (a release) updates to. Restarting
+        raises `Restarted`."""
         archive = self.root / "nutmeg.pyz"
         archive.write_bytes(nutmeg_pyz(__version__))
-        self.server.publish_nutmeg("v0.2.0", {"nutmeg-0.2.0.pyz": nutmeg_pyz("0.2.0")}, sums, prerelease=False)
+        files = {f"nutmeg-{NEWER}.pyz": nutmeg_pyz(NEWER)}
+        self.server.publish_nutmeg(f"v{NEWER}", files, sums, prerelease=False)
         for patch in (
             mock.patch.object(updater, "RELEASES_URL", f"{self.server.url}/releases"),
             mock.patch.object(updater, "LATEST_URL", f"{self.server.url}/releases/latest"),
@@ -329,9 +334,9 @@ class LaunchTests(Sandbox):
             self.launch(frontend, relaunch=["launch", URL])
         updater.restart.assert_called_once_with(["launch", URL], __version__)
         version = subprocess.run([sys.executable, str(archive), "--version"], capture_output=True, text=True)
-        self.assertEqual(version.stdout.strip(), "nutmeg 0.2.0")
-        self.assertIn(("Updating nutmeg to 0.2.0…", ""), frontend.statuses)
-        self.assertIn("installed nutmeg 0.2.0; starting it again", self.last_log())
+        self.assertEqual(version.stdout.strip(), f"nutmeg {NEWER}")
+        self.assertIn((f"Updating nutmeg to {NEWER}…", ""), frontend.statuses)
+        self.assertIn(f"installed nutmeg {NEWER}; starting it again", self.last_log())
         # Roblox was left for the new nutmeg to start.
         self.assertFalse((self.root / "record.json").exists())
 
@@ -358,15 +363,15 @@ class LaunchTests(Sandbox):
         launched, _, _ = self.launch(relaunch=["launch", URL])
         self.assertIsNone(launched.process.poll())
         self.assertEqual(archive.read_bytes(), before)
-        self.assertIn("nutmeg 0.2.0 is out, but another nutmeg is running (process 4321)", launched.log.read_text())
+        self.assertIn(f"nutmeg {NEWER} is out, but another nutmeg is running (process 4321)", launched.log.read_text())
 
     def test_a_failed_update_does_not_stop_the_launch(self):
-        archive = self.offer_nutmeg(sums="0" * 64 + "  nutmeg-0.2.0.pyz\n")
+        archive = self.offer_nutmeg(sums="0" * 64 + f"  nutmeg-{NEWER}.pyz\n")
         before = archive.read_bytes()
         launched, _, _ = self.launch(relaunch=["launch", URL])
         self.assertIsNone(launched.process.poll())
         self.assertEqual(archive.read_bytes(), before)
-        self.assertIn("could not update nutmeg: nutmeg-0.2.0.pyz does not match its checksum", launched.log.read_text())
+        self.assertIn(f"could not update nutmeg: nutmeg-{NEWER}.pyz does not match its checksum", launched.log.read_text())
 
     def test_update_replaces_the_old_build(self):
         self.launch(start=False)

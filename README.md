@@ -48,7 +48,7 @@ Download the `.flatpak` for your computer from the Releases page
 (`x86_64` for most PCs, `aarch64` for ARM ones) and install it:
 
 ```sh
-flatpak install --user nutmeg-0.2.0-x86_64.flatpak
+flatpak install --user nutmeg-1.0.0-x86_64.flatpak
 ```
 
 Flatpak offers to install GNOME's runtime from Flathub with it. Then open
@@ -120,9 +120,9 @@ stay, make it executable and run it:
 
 ```sh
 mkdir -p ~/Applications
-mv ~/Downloads/nutmeg-0.2.0-x86_64.AppImage ~/Applications/
-chmod +x ~/Applications/nutmeg-0.2.0-x86_64.AppImage
-~/Applications/nutmeg-0.2.0-x86_64.AppImage
+mv ~/Downloads/nutmeg-1.0.0-x86_64.AppImage ~/Applications/
+chmod +x ~/Applications/nutmeg-1.0.0-x86_64.AppImage
+~/Applications/nutmeg-1.0.0-x86_64.AppImage
 ```
 
 It opens the settings window; carry on with Setting up below. The menu
@@ -140,8 +140,8 @@ so `--version` tells which version it is. To remove it, take the menu entries
 out first, then delete the file:
 
 ```sh
-~/Applications/nutmeg-0.2.0-x86_64.AppImage uninstall-desktop
-rm ~/Applications/nutmeg-0.2.0-x86_64.AppImage
+~/Applications/nutmeg-1.0.0-x86_64.AppImage uninstall-desktop
+rm ~/Applications/nutmeg-1.0.0-x86_64.AppImage
 ```
 
 ### Without Flatpak or AppImage
@@ -165,11 +165,11 @@ The `.pyz` file on the Releases page runs as it is, with the system's
 Python and PyGObject:
 
 ```sh
-python3 nutmeg-0.2.0.pyz
+python3 nutmeg-1.0.0.pyz
 ```
 
 The wheel there installs with pipx in the same way:
-`pipx install --system-site-packages ./nutmeg-0.2.0-py3-none-any.whl`.
+`pipx install --system-site-packages ./nutmeg-1.0.0-py3-none-any.whl`.
 Both keep themselves up to date (see Updating nutmeg below).
 
 ## Updating nutmeg
@@ -527,11 +527,11 @@ pushed commits says "version bump" in its message (in any case), it releases
 that commit: the version in `nutmeg/__init__.py` there becomes the release,
 tagged `vX.Y.Z` and titled "nutmeg X.Y.Z", marked as the latest release. Its
 notes list the commits since the previous release, with a link comparing the
-two. So, to release 0.2.0:
+two. So, to release 1.1.0:
 
 ```sh
-# set __version__ = "0.2.0" in nutmeg/__init__.py, then
-git commit -am "Version bump to 0.2.0"
+# set __version__ = "1.1.0" in nutmeg/__init__.py, then
+git commit -am "Version bump to 1.1.0"
 git push
 ```
 
@@ -548,7 +548,7 @@ commits publishes nothing.
 
 A nightly build's version is the one in `nutmeg/__init__.py` followed by
 `.devYYYYMMDDHHMM`. Once that version is released, nightly builds take the
-version after the latest release instead (after 0.2.0, `0.2.1.devYYYYMMDDHHMM`),
+version after the latest release instead (after 1.0.0, `1.0.1.devYYYYMMDDHHMM`),
 so that they are newer than the release they follow. The tag is
 `nightly-YYYYMMDD-HHMM`, from the build time in UTC. The notes list the
 commits since the previous nightly.
@@ -562,7 +562,7 @@ To build the wheel, the source archive and the `.pyz` (the `build` package is
 needed):
 
 ```sh
-python3 scripts/build_nightly.py --version 0.1.0.dev1 --out dist
+python3 scripts/build_nightly.py --version 1.0.1.dev1 --out dist
 ```
 
 To build and install the Flatpak, with flatpak-builder (or Flathub's
@@ -581,7 +581,7 @@ the machine from
 ```sh
 sudo apt install python3-gi gir1.2-gtk-4.0 librsvg2-common libglib2.0-bin squashfs-tools patchelf
 curl -fLo runtime https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
-/usr/bin/python3 scripts/build_appimage.py --version 0.1.0.dev1 --runtime runtime --out dist
+/usr/bin/python3 scripts/build_appimage.py --version 1.0.1.dev1 --runtime runtime --out dist
 ```
 
 It bundles every library the bundled programs load, except those an AppImage
