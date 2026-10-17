@@ -122,36 +122,73 @@ class LookupTests(Sandbox):
         self.assertNotIn("state", bare)
         self.assertEqual(presence.activity(presence.Game(5, name="X"), 0)["details"], "X ")
 
-    def test_run_follows_the_game(self):
-        self.publish()
+    def follow(self) -> tuple[FakeDiscord, Path]:
+        """Start the watcher on a scratch prefix, with Roblox running until
+        the test ends, and return a fake Discord and the client log to write."""
         discord_app = FakeDiscord(self.root / "run")
         self.addCleanup(discord_app.close)
-        prefix = self.root / "prefix"
-        logs = prefix / "root/Users/me/Library/Logs/Roblox"
+        logs = self.root / "prefix/root/Users/me/Library/Logs/Roblox"
         logs.mkdir(parents=True)
-        running = {"value": {123: "build"}}
-        stop = threading.Event()
-        log = self.root / "launch.log"
-        with mock.patch.object(presence.processes, "running", lambda: running["value"]), \
-                mock.patch.object(presence, "POLL_SECONDS", 0.05), \
-                mock.patch.object(presence, "GONE_SECONDS", 0.3):
-            thread = threading.Thread(target=presence.run, args=(prefix, time.time() - 5, log, stop))
-            thread.start()
-            path = logs / "player_last.log"
-            path.write_text(JOIN_LINE)
-            self.assertTrue(self.wait(lambda: len(discord_app.activities) >= 1))
-            with open(path, "a") as f:
-                f.write(LEAVE_LINE)
-            self.assertTrue(self.wait(lambda: len(discord_app.activities) >= 2))
-            running["value"] = {}
-            thread.join(10)
-        self.assertFalse(thread.is_alive())
+        self.running = {123: "build"}
+        for patch in (
+            mock.patch.object(presence.processes, "running", lambda: dict(self.running)),
+            mock.patch.object(presence, "POLL_SECONDS", 0.05),
+            mock.patch.object(presence, "GONE_SECONDS", 0.3),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.log = self.root / "launch.log"
+        self.thread = threading.Thread(target=presence.run, args=(self.root / "prefix", time.time() - 5, self.log))
+        self.thread.start()
+        self.addCleanup(self.thread.join, 10)
+        self.addCleanup(self.running.clear)
+        return discord_app, logs / "player_last.log"
+
+    def test_run_follows_the_game(self):
+        self.publish()
+        discord_app, path = self.follow()
+        path.write_text(JOIN_LINE)
+        self.assertTrue(self.wait(lambda: len(discord_app.activities) >= 1))
+        with open(path, "a") as f:
+            f.write(LEAVE_LINE)
+        self.assertTrue(self.wait(lambda: len(discord_app.activities) >= 2))
+        self.running.clear()
+        self.thread.join(10)
+        self.assertFalse(self.thread.is_alive())
         self.assertEqual(discord_app.client_ids, [presence.CLIENT_ID])
         self.assertEqual(discord_app.activities[0]["details"], "Crossroads")
         self.assertIsNone(discord_app.activities[1])
-        text = log.read_text()
-        self.assertIn("joined place 1818 (Crossroads)", text)
+        text = self.log.read_text()
+        self.assertIn("joined place 1818\n", text)
+        self.assertIn("place 1818 is Crossroads by Roblox\n", text)
         self.assertIn("stopped following Roblox", text)
+
+    def test_the_game_is_looked_up_again_while_played(self):
+        self.publish()
+        found = self.server.routes["/games/13058"]
+        # What Roblox's games API sometimes answers instead.
+        self.server.routes["/games/13058"] = json.dumps(
+            {"data": [{"id": 13058, "name": "[TITLE UNAVAILABLE]", "creator": {"name": "[UNKNOWN]", "type": "User"}}]}
+        ).encode()
+        with mock.patch.object(presence, "LOOKUP_SECONDS", 0.3):
+            discord_app, path = self.follow()
+            path.write_text(JOIN_LINE)
+            self.assertTrue(self.wait(lambda: len(discord_app.activities) >= 1))
+            first = discord_app.activities[0]
+            self.assertEqual(first["details"], "In a Roblox game")
+            self.assertNotIn("state", first)
+            self.assertEqual(first["assets"]["large_image"], "https://tr.rbxcdn.com/icon/512/512/Image/Png")
+            self.server.routes["/games/13058"] = found
+            self.assertTrue(self.wait(lambda: len(discord_app.activities) >= 2))
+            second = discord_app.activities[1]
+            self.assertEqual((second["details"], second["state"]), ("Crossroads", "by Roblox"))
+            self.assertEqual(second["timestamps"], first["timestamps"])
+            # Lookups that fail, or answer placeholders, keep what was found.
+            for answer in (503, json.dumps({"data": [{"name": "[TITLE UNAVAILABLE]", "creator": {}}]}).encode()):
+                self.server.routes["/games/13058"] = answer
+                asked = self.server.requests.count("/games/13058")
+                self.assertTrue(self.wait(lambda: self.server.requests.count("/games/13058") >= asked + 2))
+            self.assertEqual(len(discord_app.activities), 2)
 
     def test_a_second_copy_gives_way(self):
         with mock.patch.object(presence, "LOCK_WAIT_SECONDS", 0.2):
@@ -215,8 +252,10 @@ class CloseOnLeaveTests(Sandbox):
         self.running = {}
         thread.join(10)
         self.assertFalse(thread.is_alive())
-        # The Discord setting is off, so Discord was never contacted.
+        # The Discord setting is off, so neither Discord nor Roblox's web API
+        # was asked anything.
         self.assertEqual(self.discord_app.client_ids, [])
+        self.assertFalse(presence.lookup.called)
         return self.log.read_text()
 
     def test_leaving_closes_roblox(self):

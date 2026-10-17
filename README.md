@@ -296,6 +296,12 @@ page" button that opens `https://www.roblox.com/games/<place id>`. On leaving
 or losing the connection, the activity is cleared. Teleporting to another
 place writes a new joining line, so the activity follows.
 
+The API sometimes answers without a game's name or creator, or with
+`[TITLE UNAVAILABLE]` and `[UNKNOWN]` in their place, so nutmeg looks the
+game up again every minute while you play it and fills in what it learns. A
+lookup that fails, or answers with those placeholders, keeps what an earlier
+one found. Until the name is known, the activity says "In a Roblox game".
+
 The activity goes through the Discord app's IPC socket, `discord-ipc-<n>` in
 `XDG_RUNTIME_DIR`, or in the folder the Discord Flatpak or Snap, or the Vesktop
 Flatpak, uses there. If Discord is not running, nutmeg tries again every 15

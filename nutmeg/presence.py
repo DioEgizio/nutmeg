@@ -3,8 +3,10 @@ Discord activity, and closing Roblox when the player leaves a game.
 
 When either setting is on, the launcher starts `nutmeg watch` next to Roblox.
 That process follows the client's logs for the game it joins and leaves. For
-Discord, it looks the game up with Roblox's web API and sets the activity
-through the Discord app on this computer. It stops a little after Roblox does.
+Discord, it looks the game up with Roblox's web API, and again every minute
+while it is played, since the API sometimes answers without the game's name
+or creator, and sets the activity through the Discord app on this computer.
+It stops a little after Roblox does.
 It reads the saved settings again at each join and each return to the home
 screen, so a change made while Roblox runs applies to it.
 
@@ -29,6 +31,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import queue
 import re
 import subprocess
 import threading
@@ -42,6 +45,7 @@ from typing import Callable, Optional
 from . import discord, paths, processes
 from .config import Config, ConfigError
 from .config import load as load_config
+from .roblox import USER_AGENT
 
 CLIENT_ID = "363445589247131668"
 
@@ -59,6 +63,8 @@ LEAVE = ("[FLog::SingleSurfaceApp] leaveUGCGameInternal", "[FLog::Network] Conne
 
 # How often the logs are read, and Roblox's processes looked for.
 POLL_SECONDS = 1.0
+# How often the game being played is looked up again.
+LOOKUP_SECONDS = 60.0
 # How long Roblox may be gone before this stops. A launch that closes Roblox
 # and starts it again takes less, so the presence carries on through it.
 GONE_SECONDS = 10.0
@@ -148,10 +154,28 @@ class Game:
     creator: Optional[str] = None
     icon: Optional[str] = None
 
+    def updated(self, newer: "Game") -> "Game":
+        """`newer`, with what it lacks taken from this: a lookup that fails
+        part of the way keeps what an earlier one found."""
+        return Game(
+            self.place_id,
+            newer.name or self.name,
+            newer.creator or self.creator,
+            newer.icon or self.icon,
+        )
+
+
+# What Roblox's games API gives instead of a name it does not show.
+_PLACEHOLDERS = {"[TITLE UNAVAILABLE]", "[UNKNOWN]"}
+
+
+def _known(value: object) -> Optional[str]:
+    if not isinstance(value, str) or not value.strip() or value.strip() in _PLACEHOLDERS:
+        return None
+    return value
+
 
 def _get_json(url: str) -> object:
-    from .roblox import USER_AGENT
-
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -159,19 +183,55 @@ def _get_json(url: str) -> object:
 
 def lookup(place_id: int, note: Callable[[str], None] = lambda _l: None) -> Game:
     """The game a place belongs to, as far as Roblox's web API says. What
-    cannot be found is left as None."""
+    cannot be found, or is given as a placeholder, is left as None."""
     game = Game(place_id)
     try:
         universe = _get_json(UNIVERSE_URL.format(place=place_id))["universeId"]
         details = _get_json(GAMES_URL.format(universe=int(universe)))["data"][0]
-        game.name = details.get("name") or None
-        game.creator = (details.get("creator") or {}).get("name") or None
+        game.name = _known(details.get("name"))
+        game.creator = _known((details.get("creator") or {}).get("name"))
         icons = _get_json(ICON_URL.format(universe=int(universe)))["data"]
         if icons and icons[0].get("state") == "Completed":
-            game.icon = icons[0].get("imageUrl") or None
+            game.icon = _known(icons[0].get("imageUrl"))
     except (OSError, ValueError, KeyError, IndexError, TypeError, urllib.error.URLError) as e:
         note(f"could not look up place {place_id}: {e}")
     return game
+
+
+class Lookups:
+    """Runs `lookup` on a thread of its own, one place at a time, so that a
+    slow answer from Roblox's web API holds up nothing else."""
+
+    def __init__(self, note: Callable[[str], None]):
+        self._note = note
+        self._results: queue.Queue = queue.Queue()
+        self._busy = False
+
+    def start(self, place_id: int) -> bool:
+        """Start looking `place_id` up. False while a lookup is running."""
+        if self._busy:
+            return False
+        self._busy = True
+        threading.Thread(target=self._run, args=(place_id,), daemon=True).start()
+        return True
+
+    def _run(self, place_id: int) -> None:
+        game = Game(place_id)
+        try:
+            game = lookup(place_id, self._note)
+        except Exception as e:  # Anything else still has to end the lookup.
+            self._note(f"could not look up place {place_id}: {e!r}")
+        finally:
+            self._results.put(game)
+
+    def finished(self) -> Optional[Game]:
+        """The game a finished lookup found, or None if none has finished."""
+        try:
+            game = self._results.get_nowait()
+        except queue.Empty:
+            return None
+        self._busy = False
+        return game
 
 
 def _text(value: str, limit: int = 128) -> str:
@@ -279,6 +339,12 @@ def run(
     gone_since: Optional[float] = None
     close_at: Optional[float] = None
     games: dict[int, Game] = {}
+    lookups = Lookups(log.write)
+    # The place being played, while Discord shows it: when it was joined, and
+    # when it is next looked up.
+    playing: Optional[int] = None
+    joined_at = 0.0
+    next_lookup = 0.0
     try:
         while not stop.is_set():
             for line in follower.lines():
@@ -288,22 +354,36 @@ def run(
                 kind, place = event
                 if kind == "join":
                     close_at = None
+                    log.write(f"joined place {place}")
+                    playing = None
+                    current = None
                     if read_settings().discord_presence:
-                        if place not in games:
-                            games[place] = lookup(place, log.write)
-                        game = games[place]
-                        log.write(f"joined place {place} ({game.name or 'name unknown'})")
-                        current = activity(game, time.time())
-                    else:
-                        log.write(f"joined place {place}")
-                        current = None
+                        playing, joined_at, next_lookup = place, time.time(), time.monotonic()
+                        if place in games:
+                            current = activity(games[place], joined_at)
                     continue
-                if current is not None:
+                if playing is not None:
                     log.write("left the game")
+                    playing = None
                     current = None
                 if kind == "home" and read_settings().close_on_leave:
                     log.write("back at the home screen, so Roblox will be closed")
                     close_at = time.monotonic() + CLOSE_DELAY_SECONDS
+
+            found = lookups.finished()
+            if found is not None:
+                known = games.get(found.place_id)
+                game = games[found.place_id] = known.updated(found) if known else found
+                if game != known:
+                    log.write(
+                        f"place {game.place_id} is {game.name or 'a game of unknown name'}"
+                        f" by {game.creator or 'an unknown creator'}"
+                        + ("" if game.icon else ", without an icon")
+                    )
+                if found.place_id == playing:
+                    current = activity(game, joined_at)
+            if playing is not None and time.monotonic() >= next_lookup and lookups.start(playing):
+                next_lookup = time.monotonic() + LOOKUP_SECONDS
 
             if close_at is not None and time.monotonic() >= close_at:
                 close_at = None
