@@ -109,6 +109,7 @@ class Config:
     screen_refresh_rate: str = ""
     video_driver: str = ""
     discord_presence: bool = True
+    close_on_leave: bool = False
     use_gamemode: bool = False
     use_mangohud: bool = False
     extra_env: dict = field(default_factory=dict)
@@ -156,6 +157,7 @@ class Config:
             "call_return",
             "process_server",
             "discord_presence",
+            "close_on_leave",
             "use_gamemode",
             "use_mangohud",
         ):

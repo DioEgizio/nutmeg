@@ -317,13 +317,13 @@ class Launcher:
         except OSError as e:
             raise NutmegError(f"Could not start {argv[0]}: {e.strerror}", settings=True) from e
         self.log.write(f"started process {process.pid}")
-        if self.config.discord_presence:
+        if self.config.discord_presence or self.config.close_on_leave:
             try:
                 helper = presence.start_helper(self.config.prefix(), started, self.log.path)
             except (OSError, NutmegError) as e:
-                self.log.write(f"could not start the Discord presence: {e}")
+                self.log.write(f"could not start following Roblox: {e}")
             else:
-                self.log.write(f"showing the game on Discord (process {helper.pid})")
+                self.log.write(f"following Roblox for Discord and leaving games (process {helper.pid})")
         return Launched(process=process, log=self.log.path, build=build)
 
     def settle(self, launched: Launched) -> None:

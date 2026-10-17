@@ -1,5 +1,6 @@
-"""Tests of the Discord presence: the client logs it follows, the game lookup,
-the activity it builds, and the Discord IPC client, against a fake Discord."""
+"""Tests of following Roblox: the client logs followed, the game lookup, the
+Discord activity and the Discord IPC client (against a fake Discord), and
+closing Roblox when the player leaves a game."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from nutmeg import discord, presence
+from nutmeg import config, discord, presence
 
 from helpers import FakeDiscord, Sandbox, Server
 
@@ -19,6 +20,16 @@ JOIN_LINE = (
     "'5d4f1c2e-1111-2222-3333-444455556666' place 1818 at 128.116.1.1\n"
 )
 LEAVE_LINE = "2026-10-13T10:05:00.000Z,2.0,abc,6 [FLog::SingleSurfaceApp] leaveUGCGameInternal\n"
+# What the client writes when the player leaves with the Leave button, and
+# when it quits during a game, from a 0.743 client's log.
+HOME_LINES = (
+    "2026-10-17T00:48:28.800Z,52.800430,d4e87800,6 [FLog::SingleSurfaceApp] returnToLuaApp: (stage:UGCGame).\n"
+    "2026-10-17T00:48:28.800Z,52.800480,d4e87800,6 [FLog::SingleSurfaceApp] leaveUGCGameInternal\n"
+)
+QUIT_LINES = (
+    "2026-10-17T00:45:25.870Z,18.870422,d4e87800,6 [FLog::SingleSurfaceApp] shutDown: (stage:UGCGame).\n"
+    "2026-10-17T00:45:25.923Z,18.923414,d4e87800,6 [FLog::SingleSurfaceApp] leaveUGCGameInternal\n"
+)
 
 
 class ParseTests(Sandbox):
@@ -27,6 +38,10 @@ class ParseTests(Sandbox):
         self.assertEqual(presence.parse(LEAVE_LINE), ("leave", None))
         self.assertEqual(presence.parse("x [FLog::Network] Connection lost - Cannot contact server/client"), ("leave", None))
         self.assertIsNone(presence.parse("x [FLog::SingleSurfaceApp] launchUGCGameInternal"))
+        self.assertEqual([presence.parse(line) for line in HOME_LINES.splitlines()], [("home", None), ("leave", None)])
+        self.assertEqual([presence.parse(line) for line in QUIT_LINES.splitlines()], [None, ("leave", None)])
+        # Starting up, the client returns to its home screen from no game.
+        self.assertIsNone(presence.parse("x [FLog::SingleSurfaceApp] returnToLuaApp: (stage:InitializedLuaApp)."))
 
 
 class LogFollowerTests(Sandbox):
@@ -136,7 +151,7 @@ class LookupTests(Sandbox):
         self.assertIsNone(discord_app.activities[1])
         text = log.read_text()
         self.assertIn("joined place 1818 (Crossroads)", text)
-        self.assertIn("stopped showing Roblox on Discord", text)
+        self.assertIn("stopped following Roblox", text)
 
     def test_a_second_copy_gives_way(self):
         with mock.patch.object(presence, "LOCK_WAIT_SECONDS", 0.2):
@@ -145,7 +160,7 @@ class LookupTests(Sandbox):
                 self.assertEqual(presence.run(self.root / "prefix", 0, self.root / "l.log"), 0)
             finally:
                 os.close(held)
-        self.assertIn("already showing", (self.root / "l.log").read_text())
+        self.assertIn("already following", (self.root / "l.log").read_text())
 
     @staticmethod
     def wait(condition, timeout: float = 10.0) -> bool:
@@ -155,6 +170,76 @@ class LookupTests(Sandbox):
                 return True
             time.sleep(0.02)
         return False
+
+
+class CloseOnLeaveTests(Sandbox):
+    def setUp(self) -> None:
+        super().setUp()
+        self.discord_app = FakeDiscord(self.root / "run")
+        self.addCleanup(self.discord_app.close)
+        self.logs = self.root / "prefix/root/Users/me/Library/Logs/Roblox"
+        self.logs.mkdir(parents=True)
+        self.running = {123: "build"}
+        self.terminated: list[list[int]] = []
+        self.log = self.root / "launch.log"
+        for patch in (
+            mock.patch.object(presence.processes, "running", lambda: dict(self.running)),
+            mock.patch.object(presence.processes, "terminate", self.terminate),
+            mock.patch.object(presence, "lookup", side_effect=AssertionError("looked up with Discord off")),
+            mock.patch.object(presence, "POLL_SECONDS", 0.05),
+            mock.patch.object(presence, "GONE_SECONDS", 0.3),
+            mock.patch.object(presence, "CLOSE_DELAY_SECONDS", 0.1),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def terminate(self, pids: list[int]) -> list[int]:
+        self.terminated.append(pids)
+        self.running = {}
+        return []
+
+    def follow(self, close_on_leave: bool, after_join: str, change_to: bool | None = None) -> str:
+        """Run the watcher through joining a game and then `after_join`, with
+        the Discord setting off. Returns what it logged."""
+        config.save(config.Config(discord_presence=False, close_on_leave=close_on_leave))
+        thread = threading.Thread(target=presence.run, args=(self.root / "prefix", time.time() - 5, self.log))
+        thread.start()
+        path = self.logs / "player_last.log"
+        path.write_text(JOIN_LINE)
+        self.assertTrue(LookupTests.wait(lambda: self.log.exists() and "joined place 1818" in self.log.read_text()))
+        if change_to is not None:
+            config.save(config.Config(discord_presence=False, close_on_leave=change_to))
+        with open(path, "a") as f:
+            f.write(after_join)
+        LookupTests.wait(lambda: self.terminated, timeout=0.6)
+        self.running = {}
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        # The Discord setting is off, so Discord was never contacted.
+        self.assertEqual(self.discord_app.client_ids, [])
+        return self.log.read_text()
+
+    def test_leaving_closes_roblox(self):
+        text = self.follow(True, HOME_LINES)
+        self.assertEqual(self.terminated, [[123]])
+        self.assertIn("back at the home screen, so Roblox will be closed", text)
+        self.assertIn("closed Roblox", text)
+
+    def test_not_when_off(self):
+        self.follow(False, HOME_LINES)
+        self.assertEqual(self.terminated, [])
+
+    def test_not_on_quitting_or_a_lost_connection(self):
+        self.follow(True, QUIT_LINES + "x [FLog::Network] Connection lost - Cannot contact server/client\n")
+        self.assertEqual(self.terminated, [])
+
+    def test_joining_again_straight_away_keeps_it(self):
+        self.follow(True, HOME_LINES + JOIN_LINE)
+        self.assertEqual(self.terminated, [])
+
+    def test_a_change_while_roblox_runs_applies(self):
+        self.follow(False, HOME_LINES, change_to=True)
+        self.assertEqual(self.terminated, [[123]])
 
 
 class ClientTests(Sandbox):

@@ -138,8 +138,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("uninstall-desktop", help="remove the menu entries")
     command = commands.add_parser(
-        "discord-presence",
-        help="show the game Roblox is in on Discord until it closes (started by launch)",
+        "watch",
+        help="follow Roblox until it closes, to show the game on Discord and to close "
+        "Roblox when you leave a game, as the settings say (started by launch)",
     )
     command.add_argument("--prefix", required=True, help="the rosemary prefix Roblox runs in")
     command.add_argument(
@@ -166,7 +167,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
     if command == "settings":
         return _gui("settings", None)
-    if command == "discord-presence":
+    if command == "watch":
         from pathlib import Path
 
         from . import presence

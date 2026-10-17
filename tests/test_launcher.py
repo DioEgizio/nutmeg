@@ -143,16 +143,19 @@ class LaunchTests(Sandbox):
         self.launch()
         self.assertFalse(Path(os.environ["FAKE_ROSEMARY_RECORD"] + ".server").exists())
 
-    def test_discord_presence_is_started_when_on(self):
+    def test_the_watcher_is_started_when_a_setting_needs_it(self):
         launched, _, _ = self.launch()
         self.presence_helper.assert_called_once()
         prefix, since, log = self.presence_helper.call_args.args
         self.assertEqual((prefix, log), (paths.default_prefix(), launched.log))
         self.assertLessEqual(since, time.time())
-        self.presence_helper.reset_mock()
         self.config.discord_presence = False
-        self.launch()
-        self.presence_helper.assert_not_called()
+        for close_on_leave, started in ((True, True), (False, False)):
+            with self.subTest(close_on_leave=close_on_leave):
+                self.presence_helper.reset_mock()
+                self.config.close_on_leave = close_on_leave
+                self.launch()
+                self.assertEqual(self.presence_helper.called, started)
 
     def test_gamemode_and_mangohud_wrap_rosemary(self):
         # Stand-ins that note that they ran, then exec the command as the

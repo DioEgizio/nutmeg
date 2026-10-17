@@ -1,9 +1,12 @@
-"""Showing the Roblox game being played as a Discord activity.
+"""Following Roblox while it runs: showing the game being played as a
+Discord activity, and closing Roblox when the player leaves a game.
 
-When the Discord setting is on, the launcher starts `nutmeg discord-presence`
-next to Roblox. That process follows the client's logs for the game it joins
-and leaves, looks the game up with Roblox's web API, and sets the activity
+When either setting is on, the launcher starts `nutmeg watch` next to Roblox.
+That process follows the client's logs for the game it joins and leaves. For
+Discord, it looks the game up with Roblox's web API and sets the activity
 through the Discord app on this computer. It stops a little after Roblox does.
+It reads the saved settings again at each join and each return to the home
+screen, so a change made while Roblox runs applies to it.
 
 The client writes its logs under the guest's home folder, `Library/Logs/
 Roblox`: inside the prefix (`root/Users/<name>/`), or in the real home folder
@@ -11,8 +14,14 @@ when rosemary's home folder setting is `host`. Both are watched. The lines
 followed are ones the macOS client writes:
 
     [FLog::Output] ! Joining game '<job id>' place <place id> at <address>
+    [FLog::SingleSurfaceApp] returnToLuaApp: (stage:UGCGame).
     [FLog::SingleSurfaceApp] leaveUGCGameInternal
     [FLog::Network] Connection lost
+
+The second is written when the player leaves a game and the client goes back
+to its home screen, and only then. The last two also come when the client
+quits during a game, and when it loses the connection to the game's server,
+from which it can reconnect.
 """
 
 from __future__ import annotations
@@ -31,6 +40,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from . import discord, paths, processes
+from .config import Config, ConfigError
+from .config import load as load_config
 
 CLIENT_ID = "363445589247131668"
 
@@ -43,6 +54,7 @@ ICON_URL = (
 GAME_PAGE = "https://www.roblox.com/games/{place}"
 
 JOIN = re.compile(r"\[FLog::Output\] ! Joining game '([0-9A-Fa-f-]+)' place (\d+) at ")
+HOME = "[FLog::SingleSurfaceApp] returnToLuaApp: (stage:UGCGame)"
 LEAVE = ("[FLog::SingleSurfaceApp] leaveUGCGameInternal", "[FLog::Network] Connection lost")
 
 # How often the logs are read, and Roblox's processes looked for.
@@ -52,6 +64,10 @@ POLL_SECONDS = 1.0
 GONE_SECONDS = 10.0
 # How long to wait between tries to reach the Discord app.
 RETRY_SECONDS = 15.0
+# How long after going back to the home screen the client is closed. It
+# disconnects from the game's server within a fraction of a second, and this
+# leaves it time to, so the server sees the player leave instead of timing out.
+CLOSE_DELAY_SECONDS = 2.0
 # How long a second copy waits for the first to stop before giving way to it.
 LOCK_WAIT_SECONDS = 15.0
 TIMEOUT = 10
@@ -112,10 +128,14 @@ class LogFollower:
 
 
 def parse(line: str) -> Optional[tuple[str, Optional[int]]]:
-    """("join", place id), ("leave", None), or None for any other line."""
+    """("join", place id), ("home", None) for going back to the home screen
+    from a game, ("leave", None) for any other way out of a game, or None for
+    any other line."""
     match = JOIN.search(line)
     if match:
         return "join", int(match.group(2))
+    if HOME in line:
+        return "home", None
     if any(marker in line for marker in LEAVE):
         return "leave", None
     return None
@@ -186,7 +206,7 @@ class Log:
     def write(self, line: str) -> None:
         if self._file is not None:
             stamp = time.strftime("%H:%M:%S")
-            self._file.write(f"[nutmeg discord {stamp}] {line}\n".encode("utf-8", "replace"))
+            self._file.write(f"[nutmeg watch {stamp}] {line}\n".encode("utf-8", "replace"))
 
     def close(self) -> None:
         if self._file is not None:
@@ -194,10 +214,10 @@ class Log:
 
 
 def _lock(wait: float) -> Optional[int]:
-    """Hold the presence lock, waiting up to `wait` seconds for another copy
-    to finish. Returns the descriptor, or None when another copy is running;
-    it follows the new Roblox's logs too, so this one is not needed."""
-    path = paths.state_dir() / "discord-presence.lock"
+    """Hold the watch lock, waiting up to `wait` seconds for another copy to
+    finish. Returns the descriptor, or None when another copy is running; it
+    follows the new Roblox's logs too, so this one is not needed."""
+    path = paths.state_dir() / "watch.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
     deadline = time.monotonic() + wait
@@ -212,21 +232,43 @@ def _lock(wait: float) -> Optional[int]:
             time.sleep(0.2)
 
 
+def _close_roblox(log: Log) -> None:
+    running = sorted(processes.running())
+    if not running:
+        return
+    left = processes.terminate(running)
+    if left:
+        log.write("could not close Roblox (process " + ", ".join(map(str, left)) + ")")
+    else:
+        log.write("closed Roblox")
+
+
 def run(
     prefix: Path,
     since: float,
     log_path: Optional[Path] = None,
     stop: Optional[threading.Event] = None,
 ) -> int:
-    """Keep the Discord activity in step with the game Roblox is in, until
-    Roblox has been gone for GONE_SECONDS (or `stop` is set)."""
+    """Keep the Discord activity in step with the game Roblox is in, and close
+    Roblox when the player leaves a game, as the settings say, until Roblox
+    has been gone for GONE_SECONDS (or `stop` is set)."""
     stop = stop or threading.Event()
     log = Log(log_path)
     lock = _lock(LOCK_WAIT_SECONDS)
     if lock is None:
-        log.write("another nutmeg is already showing Roblox on Discord")
+        log.write("another nutmeg is already following Roblox")
         log.close()
         return 0
+    settings = Config()
+
+    def read_settings() -> Config:
+        nonlocal settings
+        try:
+            settings = load_config()
+        except ConfigError as e:
+            log.write(f"could not read the settings, so the earlier ones apply: {e}")
+        return settings
+
     client = discord.Client(CLIENT_ID)
     follower = LogFollower(lambda: log_dirs(prefix), since)
     current: Optional[dict] = None  # The activity to show; None shows none.
@@ -235,6 +277,7 @@ def run(
     shown: Optional[dict] = None
     last_try = float("-inf")
     gone_since: Optional[float] = None
+    close_at: Optional[float] = None
     games: dict[int, Game] = {}
     try:
         while not stop.is_set():
@@ -244,14 +287,27 @@ def run(
                     continue
                 kind, place = event
                 if kind == "join":
-                    if place not in games:
-                        games[place] = lookup(place, log.write)
-                    game = games[place]
-                    log.write(f"joined place {place} ({game.name or 'name unknown'})")
-                    current = activity(game, time.time())
-                elif current is not None:
+                    close_at = None
+                    if read_settings().discord_presence:
+                        if place not in games:
+                            games[place] = lookup(place, log.write)
+                        game = games[place]
+                        log.write(f"joined place {place} ({game.name or 'name unknown'})")
+                        current = activity(game, time.time())
+                    else:
+                        log.write(f"joined place {place}")
+                        current = None
+                    continue
+                if current is not None:
                     log.write("left the game")
                     current = None
+                if kind == "home" and read_settings().close_on_leave:
+                    log.write("back at the home screen, so Roblox will be closed")
+                    close_at = time.monotonic() + CLOSE_DELAY_SECONDS
+
+            if close_at is not None and time.monotonic() >= close_at:
+                close_at = None
+                _close_roblox(log)
 
             if current != shown:
                 if not client.connected and time.monotonic() - last_try >= RETRY_SECONDS:
@@ -281,18 +337,18 @@ def run(
                 pass
             client.close()
         os.close(lock)
-        log.write("stopped showing Roblox on Discord")
+        log.write("stopped following Roblox")
         log.close()
     return 0
 
 
 def start_helper(prefix: Path, since: float, log_path: Path) -> subprocess.Popen:
-    """Start `nutmeg discord-presence` for Roblox in `prefix`, in a session of
-    its own so that it outlives the nutmeg that started it."""
+    """Start `nutmeg watch` for Roblox in `prefix`, in a session of its own so
+    that it outlives the nutmeg that started it."""
     from .desktop import nutmeg_command
 
     argv = nutmeg_command() + [
-        "discord-presence",
+        "watch",
         "--prefix",
         str(prefix),
         "--since",

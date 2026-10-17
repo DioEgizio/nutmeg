@@ -188,6 +188,7 @@ class WindowTests(Sandbox):
         window._refresh_rate.set_text("75")
         window._video_driver.set("x11")
         window._discord.set_active(False)
+        window._close_on_leave.set_active(True)
         window._mangohud.set_active(True)
         screenshot(window, "settings-butter")
         click(window, "Save")
@@ -198,6 +199,7 @@ class WindowTests(Sandbox):
         self.assertEqual((saved.metal_presentation_mode, saved.screen_refresh_rate), ("fifo", "75"))
         self.assertEqual(saved.video_driver, "x11")
         self.assertFalse(saved.discord_presence)
+        self.assertTrue(saved.close_on_leave)
         self.assertEqual((saved.use_gamemode, saved.use_mangohud), (False, True))
         self.assertIn("Created", window._prefix_status.get_text())
         # The bottle's settings replace nutmeg's runtime settings, so those are greyed out.

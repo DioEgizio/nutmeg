@@ -273,7 +273,7 @@ class Sandbox(unittest.TestCase):
         for name in ("ROSEMARY_PREFIX", "ROSEMARY_DEAD_FLAGS", "FAKE_ROSEMARY_EXIT", "FAKE_ROSEMARY_PREFIX_FAIL"):
             os.environ.pop(name, None)
         (self.root / "home").mkdir()
-        # A launch would otherwise start a real `nutmeg discord-presence`.
+        # A launch would otherwise start a real `nutmeg watch`.
         patcher = mock.patch.object(presence, "start_helper")
         self.presence_helper = patcher.start()
         self.addCleanup(patcher.stop)

@@ -260,6 +260,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         self._engine_note = _label("", dim=True)
         self._engine_note.set_visible(False)
+        self._close_on_leave = Gtk.Switch()
         return _page(
             _group("Installed", [_row("Version", self._installed)]),
             _buttons(self._launch_button, self._update_button, self._reinstall_button),
@@ -281,6 +282,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 ],
             ),
             self._engine_note,
+            _group(
+                "Experiences",
+                [
+                    _row(
+                        "Close Roblox when you leave an experience",
+                        self._close_on_leave,
+                        "When you leave an experience, Roblox closes instead of going "
+                        "back to its home screen.",
+                    ),
+                ],
+            ),
         )
 
     def _path_entry(self, placeholder: str, folder: bool, title: str) -> tuple[Gtk.Entry, Gtk.Widget]:
@@ -572,6 +584,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._refresh_rate.set_text(config.screen_refresh_rate)
         self._video_driver.set(config.video_driver)
         self._discord.set_active(config.discord_presence)
+        self._close_on_leave.set_active(config.close_on_leave)
         self._env_view.get_buffer().set_text(format_env(config.extra_env))
         self._flags.set_flags(config.fast_flags)
 
@@ -596,6 +609,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             screen_refresh_rate=self._refresh_rate.get_text().strip(),
             video_driver=self._video_driver.get(),
             discord_presence=self._discord.get_active(),
+            close_on_leave=self._close_on_leave.get_active(),
             extra_env=parse_env(_text_of(self._env_view)),
             fast_flags=self._flags.get_flags(),
         )
