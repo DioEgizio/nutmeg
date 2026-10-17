@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import shlex
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -51,6 +52,48 @@ MANAGED_ENV = {
     # SDL reads this older spelling when SDL_VIDEO_DRIVER is unset.
     "SDL_VIDEODRIVER": "Display server",
 }
+
+
+# Stands for rosemary and its arguments in the wrapper command.
+COMMAND = "%command%"
+
+
+@dataclass(frozen=True)
+class WrapperCommand:
+    env: dict
+    """Variables set by NAME=value words at the start."""
+    before: list
+    """The words before rosemary: the wrapper program and its arguments."""
+    after: list
+    """The words after rosemary's arguments, which go to Roblox."""
+
+
+def parse_wrapper(text: str) -> WrapperCommand:
+    """The wrapper command setting, written like Steam's launch options:
+    NAME=value words at the start set environment variables, and the word
+    %command% stands for rosemary and its arguments, as in
+    `gamescope -f -- %command%`. Without %command%, the whole command comes
+    before rosemary. Raises ConfigError for one that cannot be used."""
+    if "\0" in text:
+        raise ConfigError("the wrapper command contains a NUL character")
+    try:
+        words = shlex.split(text)
+    except ValueError as e:
+        raise ConfigError(f"the wrapper command cannot be read: {e}") from e
+    env = {}
+    while words and "=" in words[0] and _ENV_NAME.match(words[0].split("=", 1)[0]):
+        name, value = words.pop(0).split("=", 1)
+        if name in MANAGED_ENV:
+            raise ConfigError(f"the wrapper command sets {name}, which the {MANAGED_ENV[name]} setting sets instead")
+        env[name] = value
+    if any(COMMAND in word and word != COMMAND for word in words):
+        raise ConfigError(f"write {COMMAND} in the wrapper command as a word of its own")
+    if words.count(COMMAND) > 1:
+        raise ConfigError(f"the wrapper command has {COMMAND} more than once")
+    if COMMAND in words:
+        at = words.index(COMMAND)
+        return WrapperCommand(env, words[:at], words[at + 1 :])
+    return WrapperCommand(env, words, [])
 
 
 def _refresh_rate_ok(value: str) -> bool:
@@ -113,6 +156,7 @@ class Config:
     auto_update: bool = True
     use_gamemode: bool = False
     use_mangohud: bool = False
+    wrapper_command: str = ""
     extra_env: dict = field(default_factory=dict)
     fast_flags: dict = field(default_factory=dict)
 
@@ -165,6 +209,13 @@ class Config:
         ):
             if not isinstance(getattr(self, name), bool):
                 problems.append(f"{name} must be true or false")
+        if not isinstance(self.wrapper_command, str):
+            problems.append("wrapper_command must be a string")
+        else:
+            try:
+                parse_wrapper(self.wrapper_command)
+            except ConfigError as e:
+                problems.append(str(e))
         rate = self.screen_refresh_rate
         if not isinstance(rate, str) or (rate and not _refresh_rate_ok(rate)):
             problems.append("screen_refresh_rate must be a number of hertz above zero")

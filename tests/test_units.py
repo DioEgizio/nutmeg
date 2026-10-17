@@ -165,10 +165,33 @@ class ConfigTests(Sandbox):
             {"video_driver": "xwayland"},
             {"use_gamemode": 1},
             {"use_mangohud": "true"},
+            {"wrapper_command": ["gamescope"]},
+            {"wrapper_command": "gamescope 'unclosed"},
+            {"wrapper_command": "a %command% b %command%"},
+            {"wrapper_command": "gamescope --cmd=%command%"},
+            {"wrapper_command": "ROSEMARY_PREFIX=/x %command%"},
         ]
         for data in bad:
             with self.subTest(data=data), self.assertRaises(ConfigError):
                 Config.from_dict(data)
+
+    def test_wrapper_commands(self):
+        parse = config_module.parse_wrapper
+        self.assertEqual(parse(""), config_module.WrapperCommand({}, [], []))
+        self.assertEqual(parse("obs-gamecapture"), config_module.WrapperCommand({}, ["obs-gamecapture"], []))
+        self.assertEqual(
+            parse("gamescope -W 1920 -H 1080 -- %command%"),
+            config_module.WrapperCommand({}, ["gamescope", "-W", "1920", "-H", "1080", "--"], []),
+        )
+        self.assertEqual(
+            parse("MANGOHUD_CONFIG='fps,frametime' A=1 strace -f %command% --verbose"),
+            config_module.WrapperCommand({"MANGOHUD_CONFIG": "fps,frametime", "A": "1"}, ["strace", "-f"], ["--verbose"]),
+        )
+        # Only words at the start set variables.
+        self.assertEqual(parse("env A=1 %command%").before, ["env", "A=1"])
+        self.assertEqual(parse("DXVK_HUD=1 %command%"), config_module.WrapperCommand({"DXVK_HUD": "1"}, [], []))
+        config_module.save(Config(wrapper_command="gamescope -f -- %command%"))
+        self.assertEqual(config_module.load().wrapper_command, "gamescope -f -- %command%")
 
     def test_variables_that_became_settings_are_moved_out_of_extra_env(self):
         config = Config.from_dict(

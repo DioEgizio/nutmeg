@@ -1,0 +1,66 @@
+# The nutmeg Flatpak. .github/workflows/build.yml builds it for every nightly
+# build and release; README.md says how to build it yourself.
+id: io.github.frolleks.Nutmeg
+runtime: org.gnome.Platform
+# The runtime Butter's Flatpak runs rosemary on, and its GTK and Python.
+runtime-version: "51"
+sdk: org.gnome.Sdk
+command: nutmeg
+finish-args:
+  # Roblox's downloads and web API, and looking up games for Discord.
+  - --share=network
+  # Windows for nutmeg and for Roblox. X11 also under Wayland, for
+  # rosemary's X11 video driver.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=x11
+  - --socket=pulseaudio
+  - --device=dri
+  # Running rosemary from wherever it is: a Butter runner, or a rosemary
+  # release unpacked in the home folder, which the file chooser cannot hand
+  # over alone because it runs files beside it. Read-only: nutmeg writes only
+  # to its own folder and to the places below.
+  - --filesystem=home:ro
+  # Butter's runners and bottles, outside Butter's Flatpak and in it. Roblox
+  # running in a bottle writes to the bottle's prefix.
+  - --filesystem=xdg-data/butter
+  - --filesystem=~/.var/app/io.github.microlift.butter/data/butter
+  # Roblox's icon for the Roblox menu entry, copied out of the installed
+  # client, since the Flatpak cannot ship it.
+  - --filesystem=xdg-data/icons/hicolor:create
+  # The Discord app's socket, for showing the game being played: Discord's
+  # own (the first free of discord-ipc-0 to 9), its Snap's, and its Flatpaks'.
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/discord-ipc-1
+  - --filesystem=xdg-run/discord-ipc-2
+  - --filesystem=xdg-run/discord-ipc-3
+  - --filesystem=xdg-run/discord-ipc-4
+  - --filesystem=xdg-run/discord-ipc-5
+  - --filesystem=xdg-run/discord-ipc-6
+  - --filesystem=xdg-run/discord-ipc-7
+  - --filesystem=xdg-run/discord-ipc-8
+  - --filesystem=xdg-run/discord-ipc-9
+  - --filesystem=xdg-run/snap.discord
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  - --filesystem=xdg-run/app/com.discordapp.DiscordCanary:create
+  # The programs of the runtime's Vulkan layer extensions, as wrappers for
+  # Roblox when they are installed: MangoHud, gamescope and OBS's capture.
+  - --env=PATH=/app/bin:/usr/bin:/usr/lib/extensions/vulkan/MangoHud/bin:/usr/lib/extensions/vulkan/gamescope/bin:/usr/lib/extensions/vulkan/OBSVkCapture/bin
+modules:
+  - name: nutmeg
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-deps --no-build-isolation --no-index --no-cache-dir --disable-pip-version-check --prefix="${FLATPAK_DEST}" .
+      - python3 flatpak/install_data.py "${FLATPAK_DEST}"
+    sources:
+      - type: dir
+        path: ..
+        # What flatpak-builder and the build workflow leave in the checkout.
+        skip:
+          - .git
+          - .flatpak-builder
+          - flatpak_app
+          - repo
+          - dist
+          - build
+          - tests

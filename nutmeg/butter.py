@@ -4,9 +4,10 @@ Butter (https://github.com/microlift/butter) manages rosemary the way Bottles
 manages Wine. It keeps each runner in `<data>/butter/runners/<id>/`, with a
 `runner.toml` naming its executable, and each bottle in
 `<data>/butter/bottles/<id>/`, with a `bottle.toml` and the rosemary prefix in
-`prefix/`. `<data>` is `XDG_DATA_HOME`, or `~/.var/app/<id>/data` for the
+`prefix/`. `<data>` is `XDG_DATA_HOME`, or `~/.var/app/<id>/data` for Butter's
 Flatpak. nutmeg reads these files to offer Butter's runners and bottles in its
-settings; it never writes to them.
+settings; it never writes to them. Running Roblox in a bottle writes to the
+bottle's prefix.
 
 When Roblox runs in a bottle's prefix, it runs with that bottle's settings,
 turned into rosemary's environment the way Butter's `Bottle::environment` does
@@ -106,7 +107,7 @@ class Bottle:
 def data_dirs() -> list[tuple[Path, bool]]:
     """Butter's data folders, each with whether it is the Flatpak's."""
     return [
-        (paths.data_home() / "butter", False),
+        (paths.host_data_home() / "butter", False),
         (Path.home() / ".var/app" / FLATPAK_ID / "data/butter", True),
     ]
 

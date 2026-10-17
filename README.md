@@ -27,11 +27,124 @@ then works depends on the rosemary build you use.
   `sudo pacman -S python-gobject gtk4`.
 - xdg-utils, so that nutmeg can open `roblox-player:` links from the browser.
 
+The Flatpak needs none of the Python, PyGObject and xdg-utils parts, and the
+AppImage none of the Python and PyGObject ones: each brings its own (see
+Installing below).
+
 ## Nix development environment
 
 For Nix users, simply run `nix develop`.
 
 ## Installing
+
+nutmeg is published on the Releases page in two kinds: releases, tagged
+`vX.Y.Z`, and nightly builds, marked as pre-releases. Each has the same
+files: a Flatpak and an AppImage for x86-64 and for ARM64, a `.pyz`, a wheel
+and the source.
+
+### With Flatpak
+
+Download the `.flatpak` for your computer from the Releases page
+(`x86_64` for most PCs, `aarch64` for ARM ones) and install it:
+
+```sh
+flatpak install --user nutmeg-0.2.0-x86_64.flatpak
+```
+
+Flatpak offers to install GNOME's runtime from Flathub with it. Then open
+"nutmeg Settings" from the application menu, or run
+`flatpak run io.github.frolleks.Nutmeg`, and carry on with Setting up below.
+To update, install a newer `.flatpak` the same way; nutmeg's own updater
+leaves the Flatpak alone.
+
+The Flatpak is allowed to reach:
+
+- the network, the display (Wayland, and X11 for rosemary's X11 video
+  driver), sound and the GPU, as Butter's Flatpak is;
+- your home folder, read-only, so that it can run rosemary from wherever it
+  is: a rosemary runs files that sit beside it, which the file chooser
+  cannot hand over one at a time;
+- Butter's runners and bottles, in `~/.local/share/butter/` and in Butter's
+  Flatpak, with write access, because Roblox running in a bottle writes to
+  the bottle's prefix;
+- `~/.local/share/icons/hicolor/`, to give the Roblox menu entry Roblox's
+  icon, which is copied out of the installed client and so cannot be shipped
+  with the Flatpak;
+- the Discord app's socket, for showing your game on Discord: Discord's own,
+  its Snap's, and the Discord and Discord Canary Flatpaks'.
+
+It differs from the other ways of installing nutmeg in a few ways:
+
+- Its settings, Roblox, the prefix and the logs are kept in
+  `~/.var/app/io.github.frolleks.Nutmeg/`, so it starts with settings of its
+  own.
+- For rosemary, choose one of Butter's runners, or the `bin/rosemary` of a
+  rosemary release unpacked in your home folder. Programs on your system's
+  `PATH` are outside the sandbox, and a rosemary you built yourself usually
+  needs a newer C library than GNOME's runtime has.
+- The Flatpak adds the menu entries and opens `roblox-player:` and `roblox:`
+  links itself, so the Integration page has no Install button. If another
+  program (such as Sober) opens the links, make nutmeg their default:
+
+  ```sh
+  xdg-mime default io.github.frolleks.Nutmeg.desktop x-scheme-handler/roblox-player x-scheme-handler/roblox
+  ```
+
+- GameMode works as it is. MangoHud, gamescope and OBS's Vulkan capture are
+  runtime extensions, and run once installed, for example
+  `flatpak install flathub org.freedesktop.Platform.VulkanLayer.MangoHud//26.08`.
+- A prefix outside nutmeg's folder, the "Your home folder" setting for the
+  guest's home, or another Discord client's socket need more access, which
+  `flatpak override` gives, for example
+  `flatpak override --user --filesystem=home io.github.frolleks.Nutmeg`.
+- Each `flatpak run` is a sandbox of its own, which cannot see the processes
+  of another. While Roblox runs, the `nutmeg watch` beside it (see Discord
+  below) answers the other sandboxes, so that a launch from a link can still
+  find and close the Roblox an earlier launch started.
+
+To remove it, first take Roblox's icon back out of your icon theme, which
+Flatpak does not know about:
+
+```sh
+flatpak run io.github.frolleks.Nutmeg uninstall-desktop
+flatpak uninstall io.github.frolleks.Nutmeg
+```
+
+### With the AppImage
+
+The AppImage carries its own Python, PyGObject and GTK 4, from Ubuntu 24.04,
+so it runs on distributions with glibc 2.39 or newer: Ubuntu 24.04, Debian 13,
+Fedora 40 and later ones. On older ones, use the Flatpak. Download the
+`.AppImage` for your computer from the Releases page, put it somewhere it can
+stay, make it executable and run it:
+
+```sh
+mkdir -p ~/Applications
+mv ~/Downloads/nutmeg-0.2.0-x86_64.AppImage ~/Applications/
+chmod +x ~/Applications/nutmeg-0.2.0-x86_64.AppImage
+~/Applications/nutmeg-0.2.0-x86_64.AppImage
+```
+
+It opens the settings window; carry on with Setting up below. The menu
+entries that the Integration page's Install button adds run the AppImage
+from where it is, so after moving it, run it from its new place and install
+them again. AppImage managers such as Gear Lever add a "nutmeg Settings"
+entry of their own, but only nutmeg's Install button makes the AppImage
+open `roblox-player:` links.
+
+AppImages mount themselves with FUSE, so they need `fusermount3` (the `fuse3`
+package) or `fusermount`, which most desktops have. The AppImage keeps its
+settings and Roblox in the same places as a `.pyz` or pipx install does, and
+updates itself in place (see Updating nutmeg below): the file keeps its name,
+so `--version` tells which version it is. To remove it, take the menu entries
+out first, then delete the file:
+
+```sh
+~/Applications/nutmeg-0.2.0-x86_64.AppImage uninstall-desktop
+rm ~/Applications/nutmeg-0.2.0-x86_64.AppImage
+```
+
+### Without Flatpak or AppImage
 
 nutmeg runs straight from a checkout:
 
@@ -48,37 +161,42 @@ PyGObject:
 pipx install --system-site-packages .
 ```
 
-Nightly builds are on the Releases page, marked as pre-releases. The `.pyz`
-file there runs as it is, with the system's Python and PyGObject:
+The `.pyz` file on the Releases page runs as it is, with the system's
+Python and PyGObject:
 
 ```sh
-python3 nutmeg-0.1.0.dev202609302341.pyz
+python3 nutmeg-0.2.0.pyz
 ```
 
 The wheel there installs with pipx in the same way:
-`pipx install --system-site-packages ./nutmeg-0.1.0.dev202609302341-py3-none-any.whl`.
+`pipx install --system-site-packages ./nutmeg-0.2.0-py3-none-any.whl`.
 Both keep themselves up to date (see Updating nutmeg below).
 
 ## Updating nutmeg
 
 When "Update nutmeg automatically" is on (the default, on the Integration
 page), a launch started from the browser, the menu or the command line first
-asks GitHub's API for nutmeg's releases
-(`api.github.com/repos/frolleks/nutmeg/releases`). If one is newer than the
-running nutmeg, nutmeg downloads its file from the release, checks it against
-the release's `SHA256SUMS`, installs it, and starts again on it with the same
-link, so that the launch runs on the new version:
+asks GitHub's API for the newest nutmeg of the kind it is. A release asks for
+the latest release (`api.github.com/repos/frolleks/nutmeg/releases/latest`)
+and a nightly build for the newest nightly builds
+(`api.github.com/repos/frolleks/nutmeg/releases`), so a release only ever
+updates to a newer release and a nightly build to a newer nightly build. If
+there is a newer one, nutmeg downloads its file from the release, checks it
+against the release's `SHA256SUMS`, installs it, and starts again on it with
+the same link, so that the launch runs on the new version:
 
-- A `.pyz` file is replaced in place, keeping its name and permissions, after
-  the new file has been run once to check that it is the version expected.
-  Menu entries and links that point at the file then run the new version.
+- A `.pyz` file or an AppImage is replaced in place, keeping its name and
+  permissions, after the new file has been run once to check that it is the
+  version expected. Menu entries and links that point at the file then run
+  the new version. An AppImage is about 40 MB, which the launch waits for.
 - A wheel installed in a virtual environment, as pipx installs it, is
   replaced by the release's wheel, installed with that environment's pip
   (`python -m pip install --no-deps --no-index <wheel>`). `pipx list` goes on
   showing the version pipx installed; `nutmeg --version` shows the one
   running.
-- A source checkout is not updated; use `git pull`. Neither is a copy
-  installed some other way, or a `.pyz` nutmeg cannot write to.
+- A source checkout is not updated; use `git pull`. Neither is the Flatpak
+  (install a newer `.flatpak`), a copy installed some other way, or a `.pyz`
+  or AppImage nutmeg cannot write to.
 
 Nothing is installed while another nutmeg is running, such as the settings
 window or the `nutmeg watch` that runs alongside Roblox, because a nutmeg
@@ -99,7 +217,8 @@ launch goes on with the running version, and the launch log says why.
    for `roblox-player:` and `roblox:` links. Right-clicking "Roblox (nutmeg)"
    also offers nutmeg Settings. "Roblox (nutmeg)" gets Roblox's own icon,
    taken from the installed client's `AppIcon.icns`; until the first launch
-   installs the client, it shows a generic games icon.
+   installs the client, it shows a generic games icon. The Flatpak does all
+   this when it is installed, so it has no Install button.
 
 After that, the Play button on roblox.com starts Roblox through nutmeg.
 
@@ -213,8 +332,8 @@ The bottle's `backend` also decides `rosemary run --native` or
 `--emulated`. nutmeg's own runtime, display and emulation settings, its extra
 environment variables and its Execution setting are not used in a bottle's
 prefix; the settings window greys them out. nutmeg's Build setting,
-FastFlags, GameMode and MangoHud still apply, because Butter has nothing for
-them. Butter does not
+FastFlags, GameMode, MangoHud and wrapper command still apply, because Butter
+has nothing for them. Butter does not
 start Roblox, so Roblox does not appear in Butter's Process Manager.
 
 ## Settings
@@ -271,6 +390,25 @@ given, so the process nutmeg watches is still rosemary's. MangoHud draws its
 overlay through Vulkan, which rosemary's Metal runs on. If a switched-on
 program is not installed, the launch stops and says so.
 
+For any other program, such as gamescope or OBS's `obs-gamecapture`, fill in
+"Wrapper command". It is written the way Steam's launch options are:
+`%command%` stands for rosemary and its arguments, and `NAME=value` words at
+the start set environment variables for Roblox. Without `%command%`, the
+command goes in front of rosemary. Words after `%command%` are passed on to
+Roblox. GameMode and MangoHud, when switched on, run inside the wrapper:
+
+| Wrapper command | Runs |
+| --------------- | ---- |
+| `gamescope -f -- %command%` | `gamescope -f -- gamemoderun mangohud rosemary run …` |
+| `obs-gamecapture` | `obs-gamecapture rosemary run …` |
+| `MANGOHUD_CONFIG=fps_only=1 %command%` | `rosemary run …` with `MANGOHUD_CONFIG` set |
+
+The words are split as a shell would split them, so quotes work, but nothing
+else a shell does: there are no pipes, `$VARIABLES` or `~`, except that a `~`
+at the start of the program's path is your home folder. A program without a
+`/` is looked up on `PATH`. Variables that a setting controls, such as
+`ROSEMARY_PREFIX`, cannot be set here.
+
 ## Discord
 
 When "Show the game you are playing on Discord" is on (the default, on the
@@ -304,7 +442,7 @@ one found. Until the name is known, the activity says "In a Roblox game".
 
 The activity goes through the Discord app's IPC socket, `discord-ipc-<n>` in
 `XDG_RUNTIME_DIR`, or in the folder the Discord Flatpak or Snap, or the Vesktop
-Flatpak, uses there. If Discord is not running, nutmeg tries again every 15
+Flatpak, uses there. nutmeg's Flatpak can reach all of these but Vesktop's. If Discord is not running, nutmeg tries again every 15
 seconds. Only one `nutmeg watch` runs at a time; a launch while one is
 running leaves it to follow the new Roblox. Its own lines go to the launch log.
 
@@ -329,7 +467,7 @@ lines, and does not count as leaving.
 `nutmeg watch` reads the saved settings again each time you join or leave a
 game, so turning this on or off while Roblox runs applies straight away, as
 long as `nutmeg watch` is running: that is, when this setting or the Discord
-one was on when Roblox was started.
+one was on when Roblox was started, and always in the Flatpak.
 
 ## FastFlags
 
@@ -366,27 +504,90 @@ it applies.
 Each path follows the matching `XDG_*_HOME` variable when it is set. The logs
 hide the authentication ticket in `roblox-player:` links; the last 20 are kept.
 
-## Nightly builds
+In the Flatpak, the first five are under `~/.var/app/io.github.frolleks.Nutmeg/`
+(in `config/`, `data/`, `cache/` and `.local/state/`), the menu entries are the
+Flatpak's own, and only Roblox's icon is written to `~/.local/share/icons/`.
+
+## Releases and nightly builds
+
+Both kinds are built by `.github/workflows/build.yml`, which tests the commit
+under Xvfb, builds the wheel, the source archive and the `.pyz` with
+`scripts/build_nightly.py`, and builds a Flatpak for x86_64 and for aarch64
+with flatpak-builder from `flatpak/io.github.frolleks.Nutmeg.yml` and an
+AppImage for each with `scripts/build_appimage.py`, checking that each runs
+and reports the version. The tests run again on the Python and GTK each
+AppImage carries. The publishing job then writes `SHA256SUMS` for all of
+them. The steps the workflows share, such as naming
+a build and writing its notes, are in `scripts/release.py`.
+
+### Releases
+
+`.github/workflows/release.yml` runs on every push to `main`. When one of the
+pushed commits says "version bump" in its message (in any case), it releases
+that commit: the version in `nutmeg/__init__.py` there becomes the release,
+tagged `vX.Y.Z` and titled "nutmeg X.Y.Z", marked as the latest release. Its
+notes list the commits since the previous release, with a link comparing the
+two. So, to release 0.2.0:
+
+```sh
+# set __version__ = "0.2.0" in nutmeg/__init__.py, then
+git commit -am "Version bump to 0.2.0"
+git push
+```
+
+The workflow stops without releasing when that version is not a plain
+release version (such as `1.2.3`), is already released, or is not newer than
+the latest release.
+
+### Nightly builds
 
 `.github/workflows/nightly.yml` runs every day at 23:41 UTC. If the default
-branch has commits that are not in a nightly release yet, it runs the test
-suite under Xvfb, builds the release files with `scripts/build_nightly.py`,
-and publishes them on the Releases page as a pre-release. A day without new
+branch has commits that are not in a nightly release yet, it builds them and
+publishes them on the Releases page as a pre-release. A day without new
 commits publishes nothing.
 
-Each nightly has a wheel, a source archive, a `.pyz` and `SHA256SUMS`. Its
-version is the one in `nutmeg/__init__.py` followed by `.devYYYYMMDDHHMM`, and
-its tag is `nightly-YYYYMMDD-HHMM`, both from the build time in UTC. The notes
-list the commits since the previous nightly.
+A nightly build's version is the one in `nutmeg/__init__.py` followed by
+`.devYYYYMMDDHHMM`. Once that version is released, nightly builds take the
+version after the latest release instead (after 0.2.0, `0.2.1.devYYYYMMDDHHMM`),
+so that they are newer than the release they follow. The tag is
+`nightly-YYYYMMDD-HHMM`, from the build time in UTC. The notes list the
+commits since the previous nightly.
 
 The workflow can also be started from the Actions tab. Its `force` option
 builds even when the newest commit already has a nightly.
 
-To build the same files locally (the `build` package is needed):
+### Building locally
+
+To build the wheel, the source archive and the `.pyz` (the `build` package is
+needed):
 
 ```sh
 python3 scripts/build_nightly.py --version 0.1.0.dev1 --out dist
 ```
+
+To build and install the Flatpak, with flatpak-builder (or Flathub's
+`org.flatpak.Builder`):
+
+```sh
+flatpak-builder --user --install --install-deps-from=flathub --force-clean \
+  flatpak_app flatpak/io.github.frolleks.Nutmeg.yml
+```
+
+The AppImage is built on Ubuntu 24.04 (or in a container of it) from
+Ubuntu's packages, with the system's `python3`, and the AppImage runtime for
+the machine from
+[AppImage's type2-runtime releases](https://github.com/AppImage/type2-runtime/releases):
+
+```sh
+sudo apt install python3-gi gir1.2-gtk-4.0 librsvg2-common libglib2.0-bin squashfs-tools patchelf
+curl -fLo runtime https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+/usr/bin/python3 scripts/build_appimage.py --version 0.1.0.dev1 --runtime runtime --out dist
+```
+
+It bundles every library the bundled programs load, except those an AppImage
+takes from the system it runs on (glibc, the graphics drivers, X11's and
+Wayland's client libraries, fontconfig, FreeType and HarfBuzz, among others).
+`--test` also runs the tests on what it bundles, which needs a display.
 
 ## Development
 

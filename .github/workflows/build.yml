@@ -1,0 +1,161 @@
+name: Build
+
+# Tests a commit and builds nutmeg's release files from it, as the
+# artifacts `files` (the wheel, the source archive, the .pyz),
+# `flatpak-<arch>` (a Flatpak bundle) and `appimage-<arch>` (an AppImage), for
+# x86_64 and for aarch64. The nightly and release workflows run it, then
+# publish what it built.
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: The commit to build
+        type: string
+        required: true
+      version:
+        description: The version to stamp into it
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  files:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      # The system Python is used throughout, because PyGObject comes from
+      # the distribution and is built for it.
+      - name: Install GTK 4 and the test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-gi python3-venv gir1.2-gtk-4.0 xvfb xauth xdg-utils desktop-file-utils
+
+      - name: Test
+        run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
+
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          /usr/bin/python3 -m venv "$RUNNER_TEMP/build-env"
+          "$RUNNER_TEMP/build-env/bin/pip" install --quiet build
+          "$RUNNER_TEMP/build-env/bin/python" scripts/build_nightly.py --version "$VERSION" --out dist
+          # The publishing job writes SHA256SUMS for every file, Flatpaks too.
+          rm dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: files
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  flatpak:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    # flatpak-builder's image, with GNOME's runtime and SDK installed.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    env:
+      VERSION: ${{ inputs.version }}
+      BUNDLE: nutmeg-${{ inputs.version }}-${{ matrix.arch }}.flatpak
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      # The Flatpak is built from the checkout, so the version goes into it
+      # here, as scripts/build_nightly.py puts it into its copy.
+      - name: Stamp the version
+        run: |
+          sed -i -E "s/^__version__ = \".*\"\$/__version__ = \"$VERSION\"/" nutmeg/__init__.py
+          grep -qxF "__version__ = \"$VERSION\"" nutmeg/__init__.py
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: flatpak/io.github.frolleks.Nutmeg.yml
+          bundle: ${{ env.BUNDLE }}
+          arch: ${{ matrix.arch }}
+          upload-artifact: false
+
+      - name: Check the bundle
+        run: |
+          flatpak install --user -y --noninteractive "$BUNDLE"
+          printed=$(flatpak run io.github.frolleks.Nutmeg --version)
+          echo "$printed"
+          test "$printed" = "nutmeg $VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: ${{ env.BUNDLE }}
+          if-no-files-found: error
+          retention-days: 7
+
+  appimage:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            runtime-sha256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            runtime-sha256: 00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      # The AppImage carries these, from Ubuntu 24.04, so it runs on systems
+      # with glibc 2.39 or newer.
+      - name: Install Python, GTK 4 and the tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3 python3-gi gir1.2-gtk-4.0 librsvg2-common libglib2.0-bin \
+            squashfs-tools patchelf xvfb xauth xdg-utils desktop-file-utils
+
+      # A fixed release of the AppImage runtime, checked against its checksum.
+      - name: Download the AppImage runtime
+        env:
+          URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-${{ matrix.arch }}
+          SHA256: ${{ matrix.runtime-sha256 }}
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/runtime" "$URL"
+          echo "$SHA256  $RUNNER_TEMP/runtime" | sha256sum -c -
+
+      # --test runs the tests on the bundled Python and GTK.
+      - name: Build the AppImage
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          xvfb-run -a /usr/bin/python3 scripts/build_appimage.py \
+            --version "$VERSION" --runtime "$RUNNER_TEMP/runtime" --out dist --test
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: appimage-${{ matrix.arch }}
+          path: dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 7

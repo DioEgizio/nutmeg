@@ -1,16 +1,24 @@
 """Updating nutmeg itself from its GitHub releases.
 
-Each release (so far, the nightly pre-releases) has a zipapp
-`nutmeg-<version>.pyz`, a wheel `nutmeg-<version>-py3-none-any.whl` and
-SHA256SUMS. A copy of nutmeg updates itself when it is one of these:
+nutmeg publishes two kinds of release: releases, versioned X.Y.Z, and nightly
+pre-releases, versioned X.Y.Z.devN. A copy follows the kind it is: a release
+updates to newer releases only, and a nightly build to newer nightly builds
+only. A release is found as GitHub's latest release, so that however many
+nightly builds came after it, it is one request.
 
-- a .pyz file nutmeg can write to, which is replaced in place, so that the
-  menu entries and anything else pointing at it run the new version;
+Each release has a zipapp `nutmeg-<version>.pyz`, a wheel
+`nutmeg-<version>-py3-none-any.whl`, an AppImage
+`nutmeg-<version>-<machine>.AppImage` for each machine and SHA256SUMS, among
+other files. A copy of nutmeg updates itself when it is one of these:
+
+- a .pyz file or an AppImage nutmeg can write to, which is replaced in
+  place, so that the menu entries and anything else pointing at it run the
+  new version;
 - a wheel installed in a virtual environment, such as pipx's, where the new
   wheel is installed with that environment's pip.
 
-A source checkout is left to git, and any other installation to whatever
-installed it.
+A source checkout is left to git, the Flatpak to a newer .flatpak, and any
+other installation to whatever installed it.
 
 The launcher checks for a newer version at the start of a launch, installs
 it, and starts nutmeg again with the same request, so that the launch runs on
@@ -27,6 +35,7 @@ import hashlib
 import http.client
 import json
 import os
+import platform
 import re
 import stat
 import subprocess
@@ -40,16 +49,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, Optional
 
-from . import __version__, desktop
+from . import __version__, desktop, paths
 from .errors import NutmegError
 from .roblox import USER_AGENT
 
 RELEASES_URL = "https://api.github.com/repos/frolleks/nutmeg/releases?per_page=10"
+# The newest release that is not a pre-release (404 while there is none).
+LATEST_URL = "https://api.github.com/repos/frolleks/nutmeg/releases/latest"
 # Where a release's files must be. Others in the list are ignored.
 DOWNLOADS = "https://github.com/frolleks/nutmeg/releases/download/"
 TIMEOUT = 10
-# The most a downloaded file may be. A release's files are well under 1 MB.
+# The most a downloaded file may be. A release's files are well under 1 MB,
+# but for the AppImages, which are about 40 MB.
 MAX_BYTES = 20 * 1024 * 1024
+MAX_APPIMAGE_BYTES = 300 * 1024 * 1024
 # Set for a nutmeg started again after an update, to the version it replaced.
 UPDATED_FROM = "NUTMEG_UPDATED_FROM"
 
@@ -58,6 +71,7 @@ _VERSION = re.compile(r"^([0-9]+(?:\.[0-9]+)*)(?:\.dev([0-9]+))?$")
 _FILE_NAMES = {
     "pyz": re.compile(r"^nutmeg-(.+)\.pyz$"),
     "wheel": re.compile(r"^nutmeg-(.+)-py3-none-any\.whl$"),
+    "appimage": re.compile(rf"^nutmeg-(.+)-{re.escape(platform.machine())}\.AppImage$"),
 }
 _CHECKSUM_LINE = re.compile(r"^([0-9a-f]{64}) [ *](.+)$")
 
@@ -75,10 +89,17 @@ def version_key(version: str) -> Optional[tuple]:
     return (tuple(release), dev is None, int(dev or 0))
 
 
+def is_release(version: str) -> bool:
+    """Whether `version` is a release rather than a nightly build."""
+    key = version_key(version)
+    return key is not None and key[1]
+
+
 @dataclass(frozen=True)
 class Installation:
     kind: Optional[str]
-    """`pyz` or `wheel` for a copy nutmeg updates, None for one it does not."""
+    """`pyz`, `appimage` or `wheel` for a copy nutmeg updates, None for one it
+    does not."""
     path: Path
     description: str
     """What this copy is and how it is updated, for the settings window."""
@@ -88,6 +109,21 @@ class Installation:
 
 def installation() -> Installation:
     """How the running copy of nutmeg is installed."""
+    if paths.in_flatpak():
+        return Installation(
+            None,
+            Path(__file__).resolve().parent,
+            "This copy is the Flatpak, which updates when you install a newer .flatpak "
+            "from nutmeg's Releases page.",
+        )
+    image = paths.appimage()
+    if image is not None:
+        image = image.resolve()
+        if os.access(image, os.W_OK) and os.access(image.parent, os.W_OK):
+            return Installation("appimage", image, f"This copy is {image}. An update replaces it.")
+        return Installation(
+            None, image, f"This copy is {image}, which nutmeg cannot change, so it is not updated."
+        )
     loader = __spec__.loader if __spec__ is not None else None
     if isinstance(loader, zipimport.zipimporter):
         archive = Path(loader.archive).resolve()
@@ -135,11 +171,17 @@ def _describe(error: BaseException) -> str:
     return str(error) or type(error).__name__
 
 
-def _fetch(url: str, limit: int) -> bytes:
+def _fetch(url: str, limit: int, missing: Optional[bytes] = None) -> bytes:
+    """The body at `url`, or `missing` when it is given and the answer is 404."""
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             data = response.read(limit + 1)
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and missing is not None:
+            e.close()
+            return missing
+        raise NutmegError(f"Could not download {url}: {_describe(e)}") from e
     except (OSError, http.client.HTTPException) as e:
         raise NutmegError(f"Could not download {url}: {_describe(e)}") from e
     if len(data) > limit:
@@ -147,16 +189,31 @@ def _fetch(url: str, limit: int) -> bytes:
     return data
 
 
-def newest(kind: str) -> Optional[Release]:
-    """The newest published nutmeg that has a file for `kind`, or None."""
+def _published(nightly: bool) -> list:
+    """GitHub's answer for the newest nightly builds, or for the latest
+    release, as a list of releases."""
     try:
-        releases = json.loads(_fetch(RELEASES_URL, MAX_BYTES).decode("utf-8"))
+        if nightly:
+            data = _fetch(RELEASES_URL, MAX_BYTES)
+        else:
+            data = _fetch(LATEST_URL, MAX_BYTES, missing=b"null")
+        answer = json.loads(data.decode("utf-8"))
     except ValueError as e:
         raise NutmegError(f"Could not read GitHub's list of nutmeg releases: {e}") from e
+    if nightly:
+        return answer if isinstance(answer, list) else []
+    return [answer] if answer is not None else []
+
+
+def newest(kind: str, nightly: bool) -> Optional[Release]:
+    """The newest nightly build (when `nightly`) or release that has a file
+    for `kind`, or None."""
     pattern = _FILE_NAMES[kind]
     best: Optional[Release] = None
-    for release in releases if isinstance(releases, list) else []:
+    for release in _published(nightly):
         if not isinstance(release, dict) or release.get("draft"):
+            continue
+        if bool(release.get("prerelease")) != nightly:
             continue
         files = {}
         for asset in release.get("assets") or []:
@@ -176,19 +233,20 @@ def newest(kind: str) -> Optional[Release]:
 
 
 def newer(installation: Installation, current: str = __version__) -> Optional[Release]:
-    """A published version newer than `current` for this installation, or None."""
-    if installation.kind is None:
-        return None
-    release = newest(installation.kind)
+    """A published version newer than `current`, of the same kind (release or
+    nightly build), for this installation, or None."""
     have = version_key(current)
-    if release is None or have is None or version_key(release.version) <= have:
+    if installation.kind is None or have is None:
+        return None
+    release = newest(installation.kind, nightly=not is_release(current))
+    if release is None or version_key(release.version) <= have:
         return None
     return release
 
 
 def _clean_env() -> dict[str, str]:
     # A PYTHONPATH naming the old copy would put it ahead of the new one.
-    env = dict(os.environ)
+    env = paths.host_env()
     env.pop("PYTHONPATH", None)
     return env
 
@@ -213,9 +271,12 @@ def _check_version(command: list[str], version: str) -> None:
         raise NutmegError(f"nutmeg {version} printed {printed!r} for its version ({detail[0]})")
 
 
-def _install_pyz(archive: Path, data: bytes, version: str) -> None:
-    mode = stat.S_IMODE(archive.stat().st_mode)
-    fd, name = tempfile.mkstemp(prefix=f".{archive.name}.", suffix=".pyz", dir=archive.parent)
+def _replace_file(path: Path, data: bytes, version: str, run: list[str]) -> None:
+    """Write `data` next to `path`, check that `run` followed by it is nutmeg
+    `version`, and put it in place of `path`. A running AppImage keeps
+    reading the file it was started from, which the rename leaves alone."""
+    mode = stat.S_IMODE(path.stat().st_mode)
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=path.suffix, dir=path.parent)
     staged = Path(name)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -223,8 +284,8 @@ def _install_pyz(archive: Path, data: bytes, version: str) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.chmod(staged, mode)
-        _check_version([sys.executable, str(staged)], version)
-        os.replace(staged, archive)
+        _check_version(run + [str(staged)], version)
+        os.replace(staged, path)
     except BaseException:
         staged.unlink(missing_ok=True)
         raise
@@ -257,7 +318,7 @@ def _install_wheel(python: str, data: bytes, name: str, version: str) -> None:
 
 def install(installation: Installation, release: Release) -> None:
     """Download `release`, check it against SHA256SUMS, and install it."""
-    data = _fetch(release.url, MAX_BYTES)
+    data = _fetch(release.url, MAX_APPIMAGE_BYTES if installation.kind == "appimage" else MAX_BYTES)
     sums = _fetch(release.checksums, 1024 * 1024).decode("utf-8", "replace")
     expected = None
     for line in sums.splitlines():
@@ -269,7 +330,9 @@ def install(installation: Installation, release: Release) -> None:
     if hashlib.sha256(data).hexdigest() != expected:
         raise NutmegError(f"{release.name} does not match its checksum in SHA256SUMS")
     if installation.kind == "pyz":
-        _install_pyz(installation.path, data, release.version)
+        _replace_file(installation.path, data, release.version, [sys.executable])
+    elif installation.kind == "appimage":
+        _replace_file(installation.path, data, release.version, [])
     elif installation.kind == "wheel":
         _install_wheel(installation.python, data, release.name, release.version)
     else:
@@ -279,7 +342,7 @@ def install(installation: Installation, release: Release) -> None:
 def restart(arguments: list[str], previous: str) -> NoReturn:
     """Replace this process with the installed nutmeg, run with `arguments`."""
     command = desktop.nutmeg_command() + arguments
-    env = dict(os.environ)
+    env = paths.host_env()
     env[UPDATED_FROM] = previous
     sys.stdout.flush()
     sys.stderr.flush()

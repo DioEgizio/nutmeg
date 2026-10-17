@@ -9,6 +9,11 @@ Their icons go in the user's hicolor icon theme, named after the entries:
 the first shows Roblox's own icon, copied out of the installed build's
 AppIcon.icns, and the second nutmeg's. An entry installed before Roblox shows
 `applications-games` until the first launch installs a build.
+
+The Flatpak ships both entries itself (see `flatpak_files`), and Flatpak
+exports them and registers the URL schemes when it is installed. There,
+nutmeg only copies Roblox's icon into the host's icon theme, which the
+Flatpak is allowed to write to, since no icon can be shipped for it.
 """
 
 from __future__ import annotations
@@ -37,6 +42,11 @@ FALLBACK_ICON = "applications-games"
 # The fixed sizes hicolor's index.theme has folders for. An icon in a folder
 # the theme does not list is never found.
 THEME_SIZES = (16, 22, 24, 32, 36, 48, 64, 72, 96, 128, 192, 256, 512)
+
+# The `nutmeg` command the Flatpak installs.
+FLATPAK_COMMAND = "/app/bin/nutmeg"
+# How to make nutmeg the default for its links, run outside the Flatpak.
+FLATPAK_DEFAULT_COMMAND = f"xdg-mime default {PLAYER_ID} " + " ".join(MIME_TYPES)
 
 # Characters that make the Desktop Entry spec require an argument be quoted.
 _RESERVED = set(" \t\n\"'\\><~|&;$*?#()`")
@@ -76,8 +86,16 @@ def nutmeg_command() -> list[str]:
 
     The interpreter running now is used, so a virtual environment keeps
     working. A copy that is not installed (a source checkout) is found through
-    PYTHONPATH.
+    PYTHONPATH. The AppImage is run as itself, since the folder it runs from
+    is there only while it runs.
     """
+    image = paths.appimage()
+    if image is not None:
+        return [str(image)]
+    if paths.in_flatpak():
+        # The Flatpak's own command, which the folder nutmeg runs in cannot
+        # shadow, as it could `python3 -m nutmeg`.
+        return [FLATPAK_COMMAND]
     if not sys.executable:
         raise NutmegError("Cannot tell which Python interpreter is running nutmeg.")
     package_parent = Path(__file__).resolve().parent.parent
@@ -137,10 +155,28 @@ def settings_entry(command: list[str]) -> str:
     )
 
 
+def _settings_svg() -> bytes:
+    # Read through importlib, which also reads it out of the zipapp.
+    return (resources.files(__package__) / "data" / "nutmeg.svg").read_bytes()
+
+
+def flatpak_files() -> dict[str, bytes]:
+    """The files the Flatpak installs under /app/share for Flatpak to
+    export: both entries, running the Flatpak's `nutmeg` command (export
+    turns it into `flatpak run`), and nutmeg's icon. Roblox's icon cannot be
+    shipped; `use_roblox_icon` adds it at the first launch."""
+    command = ["nutmeg"]
+    return {
+        f"applications/{PLAYER_ID}": player_entry(command).encode(),
+        f"applications/{SETTINGS_ID}": settings_entry(command).encode(),
+        f"icons/hicolor/scalable/apps/{SETTINGS_ICON}.svg": _settings_svg(),
+    }
+
+
 def _refresh_database(directory: Path) -> None:
     tool = shutil.which("update-desktop-database")
     if tool:
-        subprocess.run([tool, "-q", str(directory)], check=False, stdin=subprocess.DEVNULL)
+        subprocess.run([tool, "-q", str(directory)], check=False, stdin=subprocess.DEVNULL, env=paths.host_env())
 
 
 def _player_icon(size: int) -> Path:
@@ -206,11 +242,14 @@ def use_roblox_icon(bundle: Path) -> bool:
     `bundle`. Does nothing when the entries are not installed. Returns whether
     anything changed."""
     entry = paths.applications_dir() / PLAYER_ID
-    if not entry.is_file():
+    if not paths.in_flatpak() and not entry.is_file():
         return False
     changed = _install_roblox_icon(bundle)
     if changed:
         _refresh_icons()
+    if paths.in_flatpak():
+        # The entry is the Flatpak's, which already names this icon.
+        return changed
     text = entry.read_text("utf-8")
     fallback = f"\nIcon={FALLBACK_ICON}\n"
     if fallback in text:
@@ -222,20 +261,8 @@ def use_roblox_icon(bundle: Path) -> bool:
     return changed
 
 
-def install() -> list[str]:
-    """Write both entries and their icons, and make nutmeg the handler for
-    Roblox links. Returns what was done, one line each."""
-    xdg_mime = shutil.which("xdg-mime")
-    if xdg_mime is None:
-        raise NutmegError("xdg-mime was not found. Install xdg-utils, then try again.")
-    directory = paths.applications_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    command = nutmeg_command()
-    done = []
-    # Read through importlib, which also reads it out of the zipapp.
-    svg = (resources.files(__package__) / "data" / "nutmeg.svg").read_bytes()
-    _write_if_changed(_settings_icon(), svg)
-    done.append(f"wrote {_settings_icon()}")
+def _copy_installed_icon(done: list[str]) -> None:
+    """Copy the installed Roblox build's icon into the theme, and say where."""
     build = roblox.load_installed()
     if build is not None and build.bundle().is_dir():
         try:
@@ -246,7 +273,35 @@ def install() -> list[str]:
     if sizes:
         folders = ", ".join(f"{size}x{size}" for size in sizes)
         done.append(f"wrote Roblox's icon to {paths.icons_dir()} ({folders})")
-    else:
+
+
+def _install_in_flatpak() -> list[str]:
+    done = ["the Flatpak adds the menu entries and opens roblox-player: and roblox: links itself"]
+    _copy_installed_icon(done)
+    if not _player_icon_sizes():
+        done.append("Roblox's icon is added once a launch installs Roblox")
+    _refresh_icons()
+    done.append(f"if another program opens the links, run this outside the Flatpak: {FLATPAK_DEFAULT_COMMAND}")
+    return done
+
+
+def install() -> list[str]:
+    """Write both entries and their icons, and make nutmeg the handler for
+    Roblox links. Returns what was done, one line each."""
+    if paths.in_flatpak():
+        return _install_in_flatpak()
+    xdg_mime = shutil.which("xdg-mime")
+    if xdg_mime is None:
+        raise NutmegError("xdg-mime was not found. Install xdg-utils, then try again.")
+    directory = paths.applications_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    command = nutmeg_command()
+    done = []
+    _write_if_changed(_settings_icon(), _settings_svg())
+    done.append(f"wrote {_settings_icon()}")
+    _copy_installed_icon(done)
+    sizes = _player_icon_sizes()
+    if not sizes:
         done.append(f"Roblox's icon replaces {FALLBACK_ICON} once a launch installs Roblox")
     _refresh_icons()
     player_icon = PLAYER_ICON if sizes else FALLBACK_ICON
@@ -261,6 +316,7 @@ def install() -> list[str]:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            env=paths.host_env(),
         )
         if result.returncode != 0:
             raise NutmegError(
@@ -272,6 +328,16 @@ def install() -> list[str]:
 
 
 def uninstall() -> list[str]:
+    """Remove both entries and their icons. In the Flatpak, whose entries
+    go with it, only the Roblox icon nutmeg copied into the host's theme."""
+    if paths.in_flatpak():
+        icons = [_player_icon(size) for size in THEME_SIZES if _player_icon(size).exists()]
+        for path in icons:
+            path.unlink()
+        if not icons:
+            return []
+        _refresh_icons()
+        return [f"removed Roblox's icon from {paths.icons_dir()}"]
     directory = paths.applications_dir()
     done = []
     for name in (PLAYER_ID, SETTINGS_ID):
@@ -291,7 +357,7 @@ def uninstall() -> list[str]:
 
 
 def installed() -> bool:
-    return (paths.applications_dir() / PLAYER_ID).is_file()
+    return paths.in_flatpak() or (paths.applications_dir() / PLAYER_ID).is_file()
 
 
 def default_handler(mime: str) -> str | None:
@@ -306,6 +372,7 @@ def default_handler(mime: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=10,
+            env=paths.host_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

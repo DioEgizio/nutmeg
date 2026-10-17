@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- install_data.py fills in the release from nutmeg's version. -->
+<component type="desktop-application">
+  <id>io.github.frolleks.Nutmeg</id>
+  <name>nutmeg</name>
+  <summary>Play Roblox with the macOS client through rosemary</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer id="io.github.frolleks">
+    <name>frolleks</name>
+  </developer>
+  <description>
+    <p>
+      nutmeg is a Roblox bootstrapper for Linux. It downloads the macOS Roblox
+      client from Roblox's servers, keeps it up to date, and starts it through
+      rosemary, which runs macOS programs on Linux.
+    </p>
+    <p>
+      It opens Play links from roblox.com, can show the game you are playing
+      on Discord, and uses the rosemary runners and bottles that Butter has
+      installed. rosemary is experimental, and so is running Roblox on it.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.frolleks.Nutmeg.Settings.desktop</launchable>
+  <url type="homepage">https://github.com/frolleks/nutmeg</url>
+  <url type="bugtracker">https://github.com/frolleks/nutmeg/issues</url>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>nutmeg</binary>
+  </provides>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

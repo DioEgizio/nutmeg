@@ -28,7 +28,7 @@ from pathlib import Path
 
 from unittest import mock
 
-from nutmeg import presence, roblox
+from nutmeg import paths, presence, roblox
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -176,10 +176,13 @@ class Server:
         self.httpd.shutdown()
         self.httpd.server_close()
 
-    def publish_nutmeg(self, tag: str, files: dict[str, bytes], sums: str | None = None) -> None:
+    def publish_nutmeg(
+        self, tag: str, files: dict[str, bytes], sums: str | None = None, prerelease: bool = True
+    ) -> None:
         """Add a nutmeg release to `/releases`, shaped like GitHub's answer,
         with its files under `/download/<tag>/` and a SHA256SUMS of them
-        (or `sums`). Releases added later are listed first, as on GitHub."""
+        (or `sums`). Releases added later are listed first, as on GitHub. A
+        release that is not a pre-release also becomes `/releases/latest`."""
         if sums is None:
             sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in files.items())
         files = dict(files, SHA256SUMS=sums.encode())
@@ -187,8 +190,11 @@ class Server:
             self.routes[f"/download/{tag}/{name}"] = data
         assets = [{"name": name, "browser_download_url": f"{self.url}/download/{tag}/{name}"} for name in files]
         releases = json.loads(self.routes.get("/releases", b"[]"))
-        releases.insert(0, {"tag_name": tag, "draft": False, "prerelease": True, "assets": assets})
+        release = {"tag_name": tag, "draft": False, "prerelease": prerelease, "assets": assets}
+        releases.insert(0, release)
         self.routes["/releases"] = json.dumps(releases).encode()
+        if not prerelease:
+            self.routes["/releases/latest"] = json.dumps(release).encode()
 
     def publish(self, guid: str, version: str, archives: dict[str, bytes], hosts: list[str]) -> None:
         self.routes["/client-version"] = json.dumps(
@@ -327,6 +333,12 @@ class Sandbox(unittest.TestCase):
         (self.root / "run").mkdir()
         for name in ("ROSEMARY_PREFIX", "ROSEMARY_DEAD_FLAGS", "FAKE_ROSEMARY_EXIT", "FAKE_ROSEMARY_PREFIX_FAIL"):
             os.environ.pop(name, None)
+        # Not in an AppImage, also when scripts/build_appimage.py runs the
+        # tests on the Python it bundles.
+        for name in [paths.APPIMAGE_VARS, "APPIMAGE", "APPDIR", "ARGV0", "OWD"]:
+            os.environ.pop(name, None)
+        for name in [n for n in os.environ if n.startswith("NUTMEG_HOST_")]:
+            del os.environ[name]
         (self.root / "home").mkdir()
         # A launch would otherwise start a real `nutmeg watch`.
         patcher = mock.patch.object(presence, "start_helper")

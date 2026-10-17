@@ -24,6 +24,12 @@ The second is written when the player leaves a game and the client goes back
 to its home screen, and only then. The last two also come when the client
 quits during a game, and when it loses the connection to the game's server,
 from which it can reconnect.
+
+In the Flatpak it always runs beside Roblox, whatever the settings, because
+it also answers other nutmeg sandboxes, which cannot see this sandbox's
+processes, about the Roblox in it (see `processes.control_socket`). When one
+asks it to close Roblox, it does, and then stops, so that the watcher of the
+Roblox started next can take over.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import json
 import os
 import queue
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -292,6 +299,87 @@ def _lock(wait: float) -> Optional[int]:
             time.sleep(0.2)
 
 
+class Control:
+    """Answers other Flatpak sandboxes of nutmeg about the Roblox in this one,
+    on `processes.control_socket()`. Sets `stop` after closing Roblox for
+    one of them."""
+
+    def __init__(self, log: Log, stop: threading.Event):
+        self._log = log
+        self._stop = stop
+        self._closing = threading.Event()
+        self._listener: Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self) -> None:
+        path = processes.control_socket()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Only the nutmeg holding the watch lock serves, so a socket already
+        # there was left by one that did not end cleanly.
+        path.unlink(missing_ok=True)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            listener.bind(str(path))
+            listener.listen(4)
+            # Wakes up now and then to see whether to stop.
+            listener.settimeout(0.5)
+        except OSError:
+            listener.close()
+            raise
+        self._listener = listener
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        assert self._listener is not None
+        while not self._closing.is_set():
+            try:
+                connection, _address = self._listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            with connection:
+                try:
+                    connection.settimeout(5.0)
+                    request = b""
+                    while b"\n" not in request and len(request) < 64:
+                        chunk = connection.recv(64)
+                        if not chunk:
+                            break
+                        request += chunk
+                    answer = self._answer(request.decode("utf-8", "replace").strip())
+                    connection.sendall(json.dumps(answer).encode())
+                except OSError:
+                    pass
+
+    def _answer(self, command: str) -> dict:
+        if command == "running":
+            return {"builds": sorted(set(processes.running().values()))}
+        if command == "stop":
+            self._log.write("another nutmeg asked to close Roblox")
+            running = sorted(processes.running())
+            left = processes.terminate(running) if running else []
+            if left:
+                self._log.write("could not close Roblox (process " + ", ".join(map(str, left)) + ")")
+                return {"left": left}
+            if running:
+                self._log.write("closed Roblox")
+            # Making way for the watcher of the Roblox started next.
+            self._stop.set()
+            return {"left": []}
+        return {"error": f"unknown command {command!r}"}
+
+    def close(self) -> None:
+        if self._listener is None:
+            return
+        self._closing.set()
+        if self._thread is not None:
+            self._thread.join(5.0)
+        self._listener.close()
+        processes.control_socket().unlink(missing_ok=True)
+
+
 def _close_roblox(log: Log) -> None:
     running = sorted(processes.running())
     if not running:
@@ -319,6 +407,14 @@ def run(
         log.write("another nutmeg is already following Roblox")
         log.close()
         return 0
+    control = None
+    if paths.in_flatpak():
+        control = Control(log, stop)
+        try:
+            control.start()
+        except OSError as e:
+            log.write(f"could not listen for other nutmeg sandboxes: {e}")
+            control = None
     settings = Config()
 
     def read_settings() -> Config:
@@ -416,6 +512,8 @@ def run(
             except (OSError, ValueError):
                 pass
             client.close()
+        if control is not None:
+            control.close()
         os.close(lock)
         log.write("stopped following Roblox")
         log.close()
@@ -444,6 +542,7 @@ def start_helper(prefix: Path, since: float, log_path: Path) -> subprocess.Popen
             stdout=output,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=paths.host_env(),
         )
     # Reaped here if this nutmeg is still running when it ends.
     threading.Thread(target=process.wait, daemon=True).start()

@@ -1,0 +1,100 @@
+name: Release
+
+# Publishes a release when a push to main brings a commit whose message says
+# "version bump", in any case. The version in nutmeg/__init__.py at that
+# commit becomes the release vX.Y.Z (scripts/release.py checks that it is new),
+# with the files a nightly build has and, as its notes, the commits since the
+# previous release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # contains() ignores case.
+    if: contains(join(github.event.commits.*.message, ' '), 'version bump')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+      title: ${{ steps.check.outputs.title }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The newest of the pushed commits that says it, which is not always
+      # the last one pushed.
+      - name: Find the version bump
+        id: check
+        run: |
+          sha=$(jq -r '[.commits[] | select(.message | ascii_downcase | contains("version bump"))] | last | .id // empty' "$GITHUB_EVENT_PATH")
+          if [ -z "$sha" ]; then
+            echo "No pushed commit says version bump." >&2
+            exit 1
+          fi
+          echo "Releasing $sha: $(git log -1 --format=%s "$sha")"
+          # Fails the job when the version cannot be released.
+          release=$(python3 scripts/release.py check --sha "$sha")
+          echo "$release"
+          {
+            echo "sha=$sha"
+            echo "$release"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    uses: ./.github/workflows/build.yml
+    with:
+      sha: ${{ needs.check.outputs.sha }}
+      version: ${{ needs.check.outputs.version }}
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      SHA: ${{ needs.check.outputs.sha }}
+      VERSION: ${{ needs.check.outputs.version }}
+      TAG: ${{ needs.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ needs.check.outputs.title }}
+        run: |
+          python3 scripts/release.py checksums dist
+          python3 scripts/release.py notes --kind release --sha "$SHA" --tag "$TAG" \
+            --version "$VERSION" --dir dist --repo "$GH_REPO" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+          # Marked as the latest release, which is where nutmeg's updater
+          # finds releases.
+          gh release create "$TAG" dist/* \
+            --latest \
+            --target "$SHA" \
+            --title "$TITLE" \
+            --notes-file "$RUNNER_TEMP/notes.md"

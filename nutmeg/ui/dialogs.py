@@ -4,10 +4,13 @@ Gtk.AlertDialog only exists from 4.10)."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
 from gi.repository import Gdk, Gio, GLib, Gtk
+
+from .. import paths
 
 
 def choose(
@@ -124,11 +127,25 @@ def inform(parent: Optional[Gtk.Window], title: str, message: str, detail: Optio
     choose(parent, title, message, [("close", "Close")], lambda _a: None, detail)
 
 
+def launch_context() -> Gio.AppLaunchContext:
+    """A context that starts programs in the environment nutmeg was started
+    in, without what the AppImage set for itself."""
+    display = Gdk.Display.get_default()
+    context = display.get_app_launch_context() if display is not None else Gio.AppLaunchContext()
+    host = paths.host_env()
+    for name in os.environ.keys() - host.keys():
+        context.unsetenv(name)
+    for name, value in host.items():
+        if os.environ.get(name) != value:
+            context.setenv(name, value)
+    return context
+
+
 def open_path(path: Path) -> Optional[str]:
     """Open a file or folder with the desktop's default application. Returns
     why it could not be opened, or None."""
     try:
-        Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(str(path)).get_uri(), None)
+        Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(str(path)).get_uri(), launch_context())
     except GLib.Error as e:
         return f"{path}: {e.message}"
     return None

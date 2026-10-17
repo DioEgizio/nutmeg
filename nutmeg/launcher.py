@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Optional, Protocol
 
 from . import __version__, desktop, paths, presence, processes, roblox, rosemary, updater
-from .config import Config
+from .config import Config, parse_wrapper
 from .errors import Cancelled, NutmegError
 from .protocol import redact
 
@@ -156,7 +156,8 @@ class Launcher:
             self._update_icon(build)
             if start:
                 self._stop_running(binary)
-            removed = roblox.remove_versions({build.key}, set(processes.running().values()))
+            in_use = set(processes.running().values()) | processes.running_elsewhere()
+            removed = roblox.remove_versions({build.key}, in_use)
             for name in removed:
                 self.log.write(f"removed the old build {name}")
             if not start:
@@ -308,9 +309,14 @@ class Launcher:
 
     def _stop_running(self, binary: Path) -> None:
         running = processes.running()
-        if not running:
+        # In the Flatpak: a Roblox started from another sandbox.
+        elsewhere = processes.running_elsewhere()
+        if not running and not elsewhere:
             return
-        self.log.write(f"already running: {sorted(running)}")
+        if running:
+            self.log.write(f"already running: {sorted(running)}")
+        if elsewhere:
+            self.log.write(f"already running in another nutmeg sandbox: {sorted(elsewhere)}")
         answer = self.frontend.ask(
             "Roblox is already running",
             "Roblox for macOS runs one instance at a time. Close the running Roblox "
@@ -328,6 +334,8 @@ class Launcher:
                 + ", ".join(map(str, left))
                 + ")."
             )
+        if elsewhere and not processes.stop_elsewhere():
+            raise NutmegError("Could not close the Roblox that another nutmeg started.")
         if self.config.process_server and rosemary.bottle(self.config) is None:
             # As Butter's Stop button does: the prefix's process server goes
             # with the client instead of lingering (ROSEMARY_SERVER_LINGER)
@@ -344,14 +352,19 @@ class Launcher:
         self, binary: Path, url: Optional[str], build: roblox.Build
     ) -> Launched:
         argv = rosemary.run_argv(binary, self.config, build.bundle(), url)
-        env = rosemary.run_env(self.config)
+        env = rosemary.roblox_env(self.config)
+        wrapper_env = parse_wrapper(self.config.wrapper_command).env
         # Where a Mac program started by the Finder begins: the guest's `/`.
         cwd = self.config.prefix() / "root"
         if not cwd.is_dir():
             cwd = Path.home()
         self.log.write("running: " + redact(shlex.join(argv)))
         for name in sorted(env):
-            if name.startswith("ROSEMARY_") or name in ("SDL_VIDEO_DRIVER", "SDL_VIDEODRIVER", "VK_DRIVER_FILES"):
+            if (
+                name.startswith("ROSEMARY_")
+                or name in ("SDL_VIDEO_DRIVER", "SDL_VIDEODRIVER", "VK_DRIVER_FILES")
+                or name in wrapper_env
+            ):
                 self.log.write(f"  {name}={env[name]}")
         self.frontend.status("Starting Roblox…", "")
         self.frontend.progress(None)
@@ -369,7 +382,8 @@ class Launcher:
         except OSError as e:
             raise NutmegError(f"Could not start {argv[0]}: {e.strerror}", settings=True) from e
         self.log.write(f"started process {process.pid}")
-        if self.config.discord_presence or self.config.close_on_leave:
+        # In the Flatpak it also answers for this Roblox to other sandboxes.
+        if self.config.discord_presence or self.config.close_on_leave or paths.in_flatpak():
             try:
                 helper = presence.start_helper(self.config.prefix(), started, self.log.path)
             except (OSError, NutmegError) as e:

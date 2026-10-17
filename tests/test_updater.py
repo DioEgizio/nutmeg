@@ -21,6 +21,11 @@ from helpers import ROOT, Sandbox, Server, fake_wheel, nutmeg_pyz
 
 
 class VersionTests(unittest.TestCase):
+    def test_kinds(self):
+        self.assertTrue(updater.is_release("0.1.0"))
+        self.assertFalse(updater.is_release("0.1.0.dev202610170131"))
+        self.assertFalse(updater.is_release("latest"))
+
     def test_order(self):
         ordered = ["0.1.0.dev9", "0.1.0.dev202610170131", "0.1", "0.1.1.dev1", "0.1.1", "0.2.0", "1.0.0.dev1", "10.0"]
         self.assertEqual(sorted(reversed(ordered), key=updater.version_key), ordered)
@@ -36,6 +41,7 @@ class ServerTests(Sandbox):
         self.addCleanup(self.server.close)
         for patch in (
             mock.patch.object(updater, "RELEASES_URL", f"{self.server.url}/releases"),
+            mock.patch.object(updater, "LATEST_URL", f"{self.server.url}/releases/latest"),
             mock.patch.object(updater, "DOWNLOADS", f"{self.server.url}/download/"),
         ):
             patch.start()
@@ -48,40 +54,79 @@ class NewestTests(ServerTests):
         self.server.publish_nutmeg("n3", {"nutmeg-0.1.0.dev3.pyz": b"c", "nutmeg-latest.pyz": b"d"})
         self.server.publish_nutmeg("n2", {"nutmeg-0.1.0.dev2-py3-none-any.whl": b"e"})
         releases = json.loads(self.server.routes["/releases"])
-        # Ignored: a draft, a release without SHA256SUMS, and files elsewhere.
-        releases.append({"draft": True, "assets": [{"name": "nutmeg-9.0.pyz", "browser_download_url": f"{self.server.url}/download/d/x"}]})
-        releases.append({"assets": [{"name": "nutmeg-8.0.pyz", "browser_download_url": f"{self.server.url}/download/e/x"}]})
+        # Ignored: a draft, a release without SHA256SUMS, files elsewhere,
+        # and a release among the nightly builds.
+        download = f"{self.server.url}/download"
+        releases.append({"draft": True, "prerelease": True, "assets": [{"name": "nutmeg-9.0.pyz", "browser_download_url": f"{download}/d/x"}]})
+        releases.append({"prerelease": True, "assets": [{"name": "nutmeg-8.0.pyz", "browser_download_url": f"{download}/e/x"}]})
         releases.append(
             {
+                "prerelease": True,
                 "assets": [
                     {"name": "nutmeg-7.0.pyz", "browser_download_url": "https://example.com/nutmeg-7.0.pyz"},
-                    {"name": "SHA256SUMS", "browser_download_url": f"{self.server.url}/download/f/SHA256SUMS"},
-                ]
+                    {"name": "SHA256SUMS", "browser_download_url": f"{download}/f/SHA256SUMS"},
+                ],
+            }
+        )
+        releases.append(
+            {
+                "prerelease": False,
+                "assets": [
+                    {"name": "nutmeg-6.0.pyz", "browser_download_url": f"{download}/g/nutmeg-6.0.pyz"},
+                    {"name": "SHA256SUMS", "browser_download_url": f"{download}/g/SHA256SUMS"},
+                ],
             }
         )
         releases.append("not a release")
         self.server.routes["/releases"] = json.dumps(releases).encode()
-        pyz = updater.newest("pyz")
+        pyz = updater.newest("pyz", nightly=True)
         self.assertEqual((pyz.version, pyz.name), ("0.1.0.dev3", "nutmeg-0.1.0.dev3.pyz"))
         self.assertEqual(pyz.url, f"{self.server.url}/download/n3/nutmeg-0.1.0.dev3.pyz")
         self.assertEqual(pyz.checksums, f"{self.server.url}/download/n3/SHA256SUMS")
-        self.assertEqual(updater.newest("wheel").version, "0.1.0.dev2")
+        self.assertEqual(updater.newest("wheel", nightly=True).version, "0.1.0.dev2")
         installation = updater.Installation("pyz", Path("x.pyz"), "")
         self.assertEqual(updater.newer(installation, "0.1.0.dev2").version, "0.1.0.dev3")
         self.assertIsNone(updater.newer(installation, "0.1.0.dev3"))
-        # A copy built from source is newer than every nightly build of it.
+        self.assertIsNone(updater.newer(updater.Installation(None, Path("."), ""), "0.0.1.dev1"))
+
+    def test_each_copy_follows_its_own_kind(self):
+        self.server.publish_nutmeg("n1", {"nutmeg-0.1.0.dev5.pyz": b"a"})
+        self.server.publish_nutmeg("v0.1.0", {"nutmeg-0.1.0.pyz": b"b"}, prerelease=False)
+        self.server.publish_nutmeg("n2", {"nutmeg-0.1.1.dev1.pyz": b"c"})
+        installation = updater.Installation("pyz", Path("x.pyz"), "")
+        # A nightly build goes on to the next nightly build, past the release.
+        self.assertEqual(updater.newer(installation, "0.1.0.dev5").version, "0.1.1.dev1")
+        # A release goes on to the next release, and never to a nightly
+        # build. It asks for GitHub's latest release only.
+        self.server.requests.clear()
+        self.assertEqual(updater.newer(installation, "0.0.9").version, "0.1.0")
         self.assertIsNone(updater.newer(installation, "0.1.0"))
-        self.assertIsNone(updater.newer(updater.Installation(None, Path("."), ""), "0.0.1"))
+        self.assertEqual(self.server.requests, ["/releases/latest"] * 2)
+        # GitHub's latest release, should it be a pre-release, is not one.
+        latest = json.loads(self.server.routes["/releases/latest"])
+        self.server.routes["/releases/latest"] = json.dumps(dict(latest, prerelease=True)).encode()
+        self.assertIsNone(updater.newer(installation, "0.0.9"))
+
+    def test_no_release_yet(self):
+        self.server.publish_nutmeg("n1", {"nutmeg-0.1.0.dev5.pyz": b"a"})
+        self.assertNotIn("/releases/latest", self.server.routes)
+        self.assertIsNone(updater.newest("pyz", nightly=False))
+        self.assertIsNone(updater.newer(updater.Installation("pyz", Path("x.pyz"), ""), "0.0.9"))
 
     def test_failures(self):
         self.server.routes["/releases"] = 503
         with self.assertRaisesRegex(NutmegError, "HTTP 503"):
-            updater.newest("pyz")
+            updater.newest("pyz", nightly=True)
         self.server.routes["/releases"] = b"<html>"
         with self.assertRaisesRegex(NutmegError, "Could not read"):
-            updater.newest("pyz")
+            updater.newest("pyz", nightly=True)
         self.server.routes["/releases"] = b"{}"
-        self.assertIsNone(updater.newest("pyz"))
+        self.assertIsNone(updater.newest("pyz", nightly=True))
+        self.server.routes["/releases/latest"] = 503
+        with self.assertRaisesRegex(NutmegError, "HTTP 503"):
+            updater.newest("pyz", nightly=False)
+        self.server.routes["/releases/latest"] = b"[]"
+        self.assertIsNone(updater.newest("pyz", nightly=False))
 
 
 class PyzTests(ServerTests):
@@ -190,6 +235,8 @@ class ProcessTests(Sandbox):
             (["/usr/bin/python3", "-m", "nutmeg", "watch"], True),
             (["/home/me/.local/share/pipx/venvs/nutmeg/bin/python", "/home/me/.local/bin/nutmeg", "launch"], True),
             (["python3", "Downloads/nutmeg-0.1.0.dev202610170131.pyz"], True),
+            (["/tmp/.mount_nutmegAbC123/usr/bin/python3", "-I", "-m", "nutmeg", "launch"], True),
+            (["/home/me/Applications/nutmeg-0.2.0-x86_64.AppImage", "launch", "roblox-player:1"], False),
             (["python3", "-m", "nutmegs"], False),
             (["vim", "notes/nutmeg.txt"], False),
             (["nutmeg"], False),

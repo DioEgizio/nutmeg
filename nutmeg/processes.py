@@ -6,16 +6,26 @@ inside that build's directory: `rosemary run <versions>/<build>/Roblox.app/...`
 for the client, and the same path spelled the way the guest sees it
 (`/Volumes/Host/...`) for a program the client started, which rosemary runs by
 re-executing itself with the guest's path.
+
+In the Flatpak, each `flatpak run` is a sandbox with a process namespace of
+its own, so a nutmeg sees only the processes of its own sandbox: a launch
+from a link cannot see the Roblox an earlier launch started. The `nutmeg
+watch` that runs beside Roblox in the Flatpak answers for the Roblox in its
+sandbox, on a socket in the one folder all of nutmeg's sandboxes share
+(`control_socket`). It takes one line, `running` or `stop`, and answers with
+JSON: the builds in use, or what was left running after closing Roblox.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import signal
+import socket
 import time
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 from . import paths
 
@@ -89,8 +99,10 @@ _NUTMEG_PYZ = re.compile(r"^nutmeg.*\.pyz$")
 
 
 def _runs_nutmeg(arguments: list[str]) -> bool:
-    # `python -m nutmeg` (the menu entries and `nutmeg watch`), the `nutmeg`
-    # command (`python <venv>/bin/nutmeg`), or `python nutmeg-<version>.pyz`.
+    # `python -m nutmeg` (the menu entries and `nutmeg watch`, and the
+    # AppImage's `python3 -I -m nutmeg`), the `nutmeg` command
+    # (`python <venv>/bin/nutmeg`), or `python nutmeg-<version>.pyz`. The
+    # AppImage's own process only serves its files while nutmeg runs.
     if any(a == "-m" and b == "nutmeg" for a, b in zip(arguments, arguments[1:])):
         return True
     script = os.path.basename(arguments[1]) if len(arguments) > 1 else ""
@@ -127,3 +139,46 @@ def terminate(pids: list[int], timeout: float = 5.0) -> list[int]:
         time.sleep(0.1)
         remaining = [pid for pid in remaining if _alive(pid)]
     return remaining
+
+
+def control_socket() -> Path:
+    return paths.runtime_dir() / "roblox.sock"
+
+
+def _ask(command: str, timeout: float) -> Optional[dict]:
+    """The answer to `command` from the nutmeg watching Roblox in another
+    Flatpak sandbox, or None when there is none."""
+    if not paths.in_flatpak():
+        return None
+    data = b""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(timeout)
+            connection.connect(str(control_socket()))
+            connection.sendall(command.encode() + b"\n")
+            while len(data) < 65536:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+    except OSError:
+        return None
+    try:
+        answer = json.loads(data)
+    except ValueError:
+        return None
+    return answer if isinstance(answer, dict) else None
+
+
+def running_elsewhere() -> set[str]:
+    """The builds Roblox runs from in another of nutmeg's Flatpak sandboxes."""
+    answer = _ask("running", 2.0)
+    builds = answer.get("builds") if answer else None
+    return {b for b in builds if isinstance(b, str)} if isinstance(builds, list) else set()
+
+
+def stop_elsewhere() -> bool:
+    """Ask the nutmeg watching Roblox in another Flatpak sandbox to close
+    it. Returns whether nothing is left running there."""
+    answer = _ask("stop", 20.0)
+    return answer is None or not answer.get("left")

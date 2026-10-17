@@ -161,6 +161,49 @@ class LaunchTests(Sandbox):
                 self.launch()
                 self.assertEqual(self.presence_helper.called, started)
 
+    def in_flatpak(self, elsewhere: set[str], stops: bool = True) -> None:
+        """Run as the Flatpak, with Roblox running from `elsewhere` in
+        another sandbox, which closes it when asked if it `stops`."""
+        for patch in (
+            mock.patch.object(paths, "in_flatpak", return_value=True),
+            mock.patch.object(processes, "running_elsewhere", return_value=elsewhere),
+            mock.patch.object(processes, "stop_elsewhere", return_value=stops),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_in_the_flatpak_roblox_in_another_sandbox_is_closed_first(self):
+        self.launch(start=False)
+        self.in_flatpak({f"{GUID_A}-x86_64"})
+        with self.assertRaises(Cancelled):
+            self.launch(Frontend({"Roblox is already running": "cancel"}))
+        processes.stop_elsewhere.assert_not_called()
+        launched, frontend, _ = self.launch()
+        self.assertEqual(frontend.asked, ["Roblox is already running"])
+        processes.stop_elsewhere.assert_called_once_with()
+        self.assertIn(f"already running in another nutmeg sandbox: ['{GUID_A}-x86_64']", launched.log.read_text())
+        self.assertIsNone(launched.process.poll())
+
+    def test_in_the_flatpak_roblox_that_will_not_close(self):
+        self.launch(start=False)
+        self.in_flatpak({f"{GUID_A}-x86_64"}, stops=False)
+        with self.assertRaisesRegex(NutmegError, "Could not close the Roblox that another nutmeg started"):
+            self.launch()
+
+    def test_in_the_flatpak_a_build_in_use_elsewhere_is_kept(self):
+        self.launch(start=False)
+        self.in_flatpak({f"{GUID_A}-x86_64"})
+        self.server.publish(GUID_B, "0.701.0.1", {"x86_64": roblox_zip()}, ["b"])
+        self.launch(start=False)
+        self.assertEqual(roblox.installed_keys(), [f"{GUID_A}-x86_64", f"{GUID_B}-x86_64"])
+
+    def test_in_the_flatpak_the_watcher_always_runs(self):
+        self.config.discord_presence = False
+        self.config.close_on_leave = False
+        self.in_flatpak(set())
+        self.launch()
+        self.presence_helper.assert_called_once()
+
     def test_gamemode_and_mangohud_wrap_rosemary(self):
         # Stand-ins that note that they ran, then exec the command as the
         # real gamemoderun and mangohud do.
@@ -182,6 +225,41 @@ class LaunchTests(Sandbox):
         self.assertEqual(list(processes.running()), [launched.process.pid])
         log = self.wait_for_text(launched.log, "guest output")
         self.assertIn(f"running: {bin_dir}/gamemoderun {bin_dir}/mangohud {self.tool} run", log)
+
+    def test_the_wrapper_command_goes_around_the_rest(self):
+        bin_dir = self.root / "wrappers"
+        bin_dir.mkdir()
+        ran = self.root / "wrapped"
+        # A wrapper that notes its arguments and a variable, and runs what
+        # follows its `--`, as gamescope does.
+        script = bin_dir / "outer"
+        script.write_text(
+            f'#!/bin/sh\necho "$NUTMEG_TEST $*" >> "{ran}"\n'
+            'while [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n'
+        )
+        script.chmod(0o755)
+        gamemode = bin_dir / "gamemoderun"
+        gamemode.write_text('#!/bin/sh\nexec "$@"\n')
+        gamemode.chmod(0o755)
+        os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
+        self.config.use_gamemode = True
+        self.config.wrapper_command = "NUTMEG_TEST='a b' outer --size 'x y' -- %command% --extra"
+        launched, _, _ = self.launch()
+        build = roblox.Build(GUID_A, "0.700.0.1", "x86_64")
+        rosemary_args = ["run", str(build.bundle()), "-protocolString", URL, "--extra"]
+        self.assertEqual(self.record()["argv"], rosemary_args)
+        self.assertEqual(
+            ran.read_text(),
+            f"a b --size x y -- {gamemode} {self.tool} {' '.join(rosemary_args)}\n",
+        )
+        log = self.wait_for_text(launched.log, "guest output")
+        self.assertIn(f"running: {script} --size 'x y' -- {gamemode} {self.tool} run", log)
+        self.assertIn("  NUTMEG_TEST=a b\n", log)
+
+    def test_a_missing_wrapper_command_program_stops_the_launch(self):
+        self.config.wrapper_command = "no-such-wrapper %command%"
+        with self.assertRaisesRegex(NutmegError, "The wrapper command's program, no-such-wrapper, was not found"):
+            self.launch()
 
     def test_a_missing_wrapper_stops_the_launch(self):
         os.environ["PATH"] = str(self.root / "empty")
@@ -223,13 +301,15 @@ class LaunchTests(Sandbox):
         self.assertIn("could not update the menu entry's icon: ", launched.log.read_text())
 
     def offer_nutmeg(self, sums=None) -> Path:
-        """A nutmeg 0.1.0.dev1 .pyz to update, and nutmeg 0.2.0.dev1 on the
-        stand-in GitHub. Restarting raises `Restarted`."""
+        """A nutmeg .pyz to update, and the release nutmeg 0.2.0 on the
+        stand-in GitHub, which this copy (a release, 0.1.0) updates to.
+        Restarting raises `Restarted`."""
         archive = self.root / "nutmeg.pyz"
-        archive.write_bytes(nutmeg_pyz("0.1.0.dev1"))
-        self.server.publish_nutmeg("n", {"nutmeg-0.2.0.dev1.pyz": nutmeg_pyz("0.2.0.dev1")}, sums)
+        archive.write_bytes(nutmeg_pyz(__version__))
+        self.server.publish_nutmeg("v0.2.0", {"nutmeg-0.2.0.pyz": nutmeg_pyz("0.2.0")}, sums, prerelease=False)
         for patch in (
             mock.patch.object(updater, "RELEASES_URL", f"{self.server.url}/releases"),
+            mock.patch.object(updater, "LATEST_URL", f"{self.server.url}/releases/latest"),
             mock.patch.object(updater, "DOWNLOADS", f"{self.server.url}/download/"),
             mock.patch.object(updater, "installation", return_value=updater.Installation("pyz", archive, "")),
             mock.patch.object(updater, "restart", side_effect=Restarted),
@@ -249,9 +329,9 @@ class LaunchTests(Sandbox):
             self.launch(frontend, relaunch=["launch", URL])
         updater.restart.assert_called_once_with(["launch", URL], __version__)
         version = subprocess.run([sys.executable, str(archive), "--version"], capture_output=True, text=True)
-        self.assertEqual(version.stdout.strip(), "nutmeg 0.2.0.dev1")
-        self.assertIn(("Updating nutmeg to 0.2.0.dev1…", ""), frontend.statuses)
-        self.assertIn("installed nutmeg 0.2.0.dev1; starting it again", self.last_log())
+        self.assertEqual(version.stdout.strip(), "nutmeg 0.2.0")
+        self.assertIn(("Updating nutmeg to 0.2.0…", ""), frontend.statuses)
+        self.assertIn("installed nutmeg 0.2.0; starting it again", self.last_log())
         # Roblox was left for the new nutmeg to start.
         self.assertFalse((self.root / "record.json").exists())
 
@@ -260,7 +340,7 @@ class LaunchTests(Sandbox):
         os.environ[updater.UPDATED_FROM] = "0.1.0.dev1"
         launched, _, _ = self.launch(relaunch=["launch", URL])
         self.assertIsNone(launched.process.poll())
-        self.assertNotIn("/releases", self.server.requests)
+        self.assertNotIn("/releases/latest", self.server.requests)
         self.assertNotIn(updater.UPDATED_FROM, os.environ)
         self.assertIn("updated from nutmeg 0.1.0.dev1", launched.log.read_text())
 
@@ -269,7 +349,7 @@ class LaunchTests(Sandbox):
         self.launch()
         self.config.auto_update = False
         self.launch(relaunch=["launch", URL])
-        self.assertNotIn("/releases", self.server.requests)
+        self.assertNotIn("/releases/latest", self.server.requests)
 
     def test_the_update_waits_while_another_nutmeg_runs(self):
         archive = self.offer_nutmeg()
@@ -278,15 +358,15 @@ class LaunchTests(Sandbox):
         launched, _, _ = self.launch(relaunch=["launch", URL])
         self.assertIsNone(launched.process.poll())
         self.assertEqual(archive.read_bytes(), before)
-        self.assertIn("nutmeg 0.2.0.dev1 is out, but another nutmeg is running (process 4321)", launched.log.read_text())
+        self.assertIn("nutmeg 0.2.0 is out, but another nutmeg is running (process 4321)", launched.log.read_text())
 
     def test_a_failed_update_does_not_stop_the_launch(self):
-        archive = self.offer_nutmeg(sums="0" * 64 + "  nutmeg-0.2.0.dev1.pyz\n")
+        archive = self.offer_nutmeg(sums="0" * 64 + "  nutmeg-0.2.0.pyz\n")
         before = archive.read_bytes()
         launched, _, _ = self.launch(relaunch=["launch", URL])
         self.assertIsNone(launched.process.poll())
         self.assertEqual(archive.read_bytes(), before)
-        self.assertIn("could not update nutmeg: nutmeg-0.2.0.dev1.pyz does not match its checksum", launched.log.read_text())
+        self.assertIn("could not update nutmeg: nutmeg-0.2.0.pyz does not match its checksum", launched.log.read_text())
 
     def test_update_replaces_the_old_build(self):
         self.launch(start=False)

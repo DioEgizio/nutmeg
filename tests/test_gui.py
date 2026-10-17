@@ -13,7 +13,7 @@ from unittest import mock
 
 from nutmeg import launcher as launcher_module
 from nutmeg import config as config_module
-from nutmeg import paths, roblox, rosemary
+from nutmeg import desktop, paths, roblox, rosemary
 from nutmeg.config import Config
 
 from helpers import Sandbox, Server, roblox_zip
@@ -172,6 +172,21 @@ class WindowTests(Sandbox):
         self.assertTrue(pump(lambda: not window.get_visible()))
         self.assertEqual(config_module.load(), saved)
 
+    def test_the_flatpak_integration_page(self):
+        with mock.patch.object(paths, "in_flatpak", return_value=True):
+            window = SettingsWindow(self.app)
+            window.present()
+            pump(lambda: window.get_mapped())
+            window._stack.set_visible_child_name("integration")
+            screenshot(window, "settings-integration-flatpak")
+            self.assertEqual(window._entries_state.get_text(), "Added by the Flatpak")
+            labels = [button.get_label() for button in buttons(window)]
+            self.assertNotIn("Install", labels)
+            self.assertNotIn("Remove", labels)
+            texts = [label.get_text() for label in find_all(window, Gtk.Label)]
+            self.assertIn(desktop.FLATPAK_DEFAULT_COMMAND, texts)
+            self.assertFalse(window._auto_update.get_sensitive())
+
     def test_butter_runners_and_bottles_are_offered(self):
         tool = self.butter_runner("rosemary-v1-official", 'name = "Rosemary 1 (Official Build)"\nexecutable = "bin/rosemary"\n')
         prefix = self.butter_bottle("roblox", 'name = "Roblox"\n')
@@ -191,6 +206,7 @@ class WindowTests(Sandbox):
         window._close_on_leave.set_active(True)
         window._auto_update.set_active(False)
         window._mangohud.set_active(True)
+        window._wrapper.set_text("  gamescope -f -- %command% ")
         screenshot(window, "settings-butter")
         click(window, "Save")
         saved = config_module.load()
@@ -203,14 +219,16 @@ class WindowTests(Sandbox):
         self.assertTrue(saved.close_on_leave)
         self.assertFalse(saved.auto_update)
         self.assertEqual((saved.use_gamemode, saved.use_mangohud), (False, True))
+        self.assertEqual(saved.wrapper_command, "gamescope -f -- %command%")
         self.assertIn("Created", window._prefix_status.get_text())
         # The bottle's settings replace nutmeg's runtime settings, so those are greyed out.
         self.assertTrue(window._bottle_note.get_visible())
         self.assertIn("Roblox bottle's settings", window._bottle_note.get_text())
         self.assertFalse(window._engine.widget.get_sensitive())
         self.assertFalse(window._swap.widget.is_sensitive())
-        # Butter has nothing for GameMode or MangoHud, so they stay usable.
+        # Butter has nothing for GameMode, MangoHud or wrappers, so they stay usable.
         self.assertTrue(window._mangohud.is_sensitive())
+        self.assertTrue(window._wrapper.is_sensitive())
         screenshot(window, "settings-bottle")
         prefix_choice.dropdown.set_selected(0)
         self.assertFalse(window._bottle_note.get_visible())
@@ -408,6 +426,26 @@ class WindowTests(Sandbox):
         from nutmeg import processes
 
         processes.terminate(sorted(processes.running()))
+
+
+@unittest.skipUnless(HAVE_DISPLAY, "needs GTK 4 and a display")
+class LaunchContextTests(Sandbox):
+    def test_programs_opened_from_the_appimage_get_the_systems_environment(self):
+        from nutmeg.ui import dialogs
+
+        os.environ.update(
+            {
+                paths.APPIMAGE_VARS: "GI_TYPELIB_PATH GIO_MODULE_DIR",
+                "NUTMEG_HOST_GI_TYPELIB_PATH": "/opt/typelibs",
+                "GI_TYPELIB_PATH": "/tmp/.mount_nutmeg/usr/lib/girepository-1.0",
+                "GIO_MODULE_DIR": "/tmp/.mount_nutmeg/usr/lib/gio/modules",
+            }
+        )
+        env = dict(item.split("=", 1) for item in dialogs.launch_context().get_environment())
+        self.assertEqual(env["GI_TYPELIB_PATH"], "/opt/typelibs")
+        for name in ("GIO_MODULE_DIR", paths.APPIMAGE_VARS, "NUTMEG_HOST_GI_TYPELIB_PATH"):
+            self.assertNotIn(name, env)
+        self.assertEqual(env["HOME"], os.environ["HOME"])
 
 
 if __name__ == "__main__":

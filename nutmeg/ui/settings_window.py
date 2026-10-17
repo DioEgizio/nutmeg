@@ -349,6 +349,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._confine = Gtk.Switch()
         self._gamemode = Gtk.Switch()
         self._mangohud = Gtk.Switch()
+        self._wrapper = Gtk.Entry(placeholder_text="gamescope -f -- %command%", hexpand=True)
         self._prefix_home = Choice(
             [("", "Default"), ("prefix", "Inside the prefix"), ("host", "Your home folder")]
         )
@@ -469,6 +470,15 @@ class SettingsWindow(Gtk.ApplicationWindow):
                         "Starts Roblox with mangohud, which draws the frame rate and other "
                         "statistics over the game." + _missing("mangohud"),
                     ),
+                    _wide_row(
+                        "Wrapper command",
+                        self._wrapper,
+                        "Starts Roblox through other programs, written like Steam's launch "
+                        "options: %command% stands for rosemary and its arguments, as in "
+                        "gamescope -f -- %command%. Without %command%, the command goes in "
+                        "front. NAME=value words at the start set environment variables. "
+                        "GameMode and MangoHud run inside it.",
+                    ),
                 ],
                 "These also apply in a Butter bottle's prefix, which has no settings for them.",
             ),
@@ -516,23 +526,42 @@ class SettingsWindow(Gtk.ApplicationWindow):
         box.append(self._flags)
         return box
 
-    def _integration_page(self) -> Gtk.Widget:
+    def _desktop_group(self) -> list[Gtk.Widget]:
         self._entries_state = _label("")
+        if paths.in_flatpak():
+            # Flatpak exports the entries and registers the links; which
+            # program the host opens them with cannot be seen from inside.
+            self._handler_labels = {}
+            command = _label(desktop.FLATPAK_DEFAULT_COMMAND)
+            command.set_selectable(True)
+            return [
+                _group(
+                    "Desktop",
+                    [
+                        _row("Menu entries", self._entries_state),
+                        _wide_row(
+                            "If another program opens Roblox links",
+                            command,
+                            "Run this in a terminal, outside the Flatpak, to make nutmeg open them.",
+                        ),
+                    ],
+                    "The Flatpak adds Roblox and nutmeg Settings to the application menu, and "
+                    "opens roblox-player: and roblox: links with nutmeg, so that Play on "
+                    "roblox.com starts Roblox through nutmeg. The first launch gives the Roblox "
+                    "entry Roblox's icon.",
+                )
+            ]
         self._handler_labels = {mime: _label("") for mime in desktop.MIME_TYPES}
         install = Gtk.Button(label="Install")
         install.add_css_class("suggested-action")
         install.connect("clicked", lambda _b: self._install_desktop())
         remove = Gtk.Button(label="Remove")
         remove.connect("clicked", lambda _b: self._uninstall_desktop())
-        self._discord = Gtk.Switch()
-        self._auto_update = Gtk.Switch()
-        logs = Gtk.Button(label="Open Logs Folder")
-        logs.connect("clicked", lambda _b: self._open_logs())
         rows = [_row("Menu entries", self._entries_state)]
         for mime, label in self._handler_labels.items():
             scheme = mime.split("/", 1)[1]
             rows.append(_row(f"{scheme}: links open with", label))
-        return _page(
+        return [
             _group(
                 "Desktop",
                 rows,
@@ -541,6 +570,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 "Roblox through nutmeg.",
             ),
             _buttons(install, remove),
+        ]
+
+    def _integration_page(self) -> Gtk.Widget:
+        self._discord = Gtk.Switch()
+        self._auto_update = Gtk.Switch()
+        # Only a newer .flatpak updates the Flatpak.
+        self._auto_update.set_sensitive(not paths.in_flatpak())
+        logs = Gtk.Button(label="Open Logs Folder")
+        logs.connect("clicked", lambda _b: self._open_logs())
+        return _page(
+            *self._desktop_group(),
             _group(
                 "Discord",
                 [
@@ -589,6 +629,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._confine.set_active(config.confine_pointer)
         self._gamemode.set_active(config.use_gamemode)
         self._mangohud.set_active(config.use_mangohud)
+        self._wrapper.set_text(config.wrapper_command)
         self._dead_flags.set_active(config.dead_flags)
         self._call_return.set_active(config.call_return)
         self._prefix_home.set(config.prefix_home)
@@ -615,6 +656,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             confine_pointer=self._confine.get_active(),
             use_gamemode=self._gamemode.get_active(),
             use_mangohud=self._mangohud.get_active(),
+            wrapper_command=self._wrapper.get_text().strip(),
             dead_flags=self._dead_flags.get_active(),
             call_return=self._call_return.get_active(),
             prefix_home=self._prefix_home.get(),
@@ -739,7 +781,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._repair_button.set_sensitive(not self._busy and base is not None)
 
     def _refresh_integration(self) -> None:
-        self._entries_state.set_text("Installed" if desktop.installed() else "Not installed")
+        if paths.in_flatpak():
+            self._entries_state.set_text("Added by the Flatpak")
+        else:
+            self._entries_state.set_text("Installed" if desktop.installed() else "Not installed")
         for mime, label in self._handler_labels.items():
             label.set_text(desktop.default_handler(mime) or "Nothing")
 
@@ -827,7 +872,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _remove_builds(self) -> None:
         def work() -> str:
             with self._busy_lock():
-                if processes.running():
+                if processes.running() or processes.running_elsewhere():
                     raise NutmegError("Close Roblox first.")
                 removed = roblox.remove_versions(keep=set(), in_use=set())
                 roblox.forget_installed()

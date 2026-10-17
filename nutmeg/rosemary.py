@@ -19,8 +19,8 @@ import threading
 from pathlib import Path
 from typing import Callable
 
-from . import butter
-from .config import MANAGED_ENV, Config
+from . import butter, paths
+from .config import MANAGED_ENV, Config, parse_wrapper
 from .errors import Cancelled, NutmegError
 
 # How a prefix's Darwin base names each Roblox build's architecture.
@@ -108,6 +108,9 @@ def find_rosemary(config: Config) -> Path:
                 f"Install a rosemary runner with Butter ({butter.WEBSITE}) and choose "
                 "it in Settings, or choose a rosemary program you built."
             )
+        if paths.in_flatpak():
+            # Programs on the host's PATH are outside the sandbox.
+            raise NutmegError(f"No rosemary program is chosen. {hint}", settings=True)
         raise NutmegError(f"rosemary was not found on PATH. {hint}", settings=True)
     return Path(found)
 
@@ -196,7 +199,7 @@ def create_prefix(
     architecture is installed too, downloading it if it is not cached; the
     caller has asked the user first, as rosemary does. Without it, only the
     prefix's directories are made (`--no-base`)."""
-    env = dict(os.environ)
+    env = paths.host_env()
     argv = [str(rosemary), "prefix", "create", str(prefix)]
     if base_arch is None:
         argv.append("--no-base")
@@ -222,7 +225,7 @@ def repair_prefix(
     """`rosemary prefix repair`, which puts back system files that differ from
     the base, offline. Returns the exit status."""
     argv = [str(rosemary), "prefix", "repair", str(prefix)]
-    return _run_captured(argv, dict(os.environ), output, cancel)
+    return _run_captured(argv, paths.host_env(), output, cancel)
 
 
 def stop_server(
@@ -245,7 +248,7 @@ def run_env(config: Config, base: dict[str, str] | None = None) -> dict[str, str
     of nutmeg's, as Butter applies them, so that nutmeg does not override
     what the bottle is set to.
     """
-    env = dict(os.environ if base is None else base)
+    env = paths.host_env() if base is None else dict(base)
     for name in MANAGED_ENV:
         env.pop(name, None)
     found = bottle(config)
@@ -289,6 +292,11 @@ WRAPPERS = (
     ("use_gamemode", "gamemoderun", "GameMode"),
     ("use_mangohud", "mangohud", "MangoHud"),
 )
+# In the Flatpak, the runtime has gamemoderun, and MangoHud comes as an
+# extension of it, whose folder the Flatpak puts on PATH.
+FLATPAK_INSTALL = {
+    "mangohud": "flatpak install flathub org.freedesktop.Platform.VulkanLayer.MangoHud//26.08",
+}
 
 
 def wrappers(config: Config) -> list[str]:
@@ -301,19 +309,46 @@ def wrappers(config: Config) -> list[str]:
             continue
         found = shutil.which(program)
         if found is None:
+            how = f"Install {label}"
+            if paths.in_flatpak() and program in FLATPAK_INSTALL:
+                how = f"Install it for the Flatpak ({FLATPAK_INSTALL[program]})"
             raise NutmegError(
                 f"{label} is switched on in Settings, but {program} was not found on "
-                f"PATH. Install {label}, or switch it off in Settings.",
+                f"PATH. {how}, or switch it off in Settings.",
                 settings=True,
             )
         argv.append(found)
     return argv
 
 
+def roblox_env(config: Config) -> dict[str, str]:
+    """The environment Roblox is started with: `run_env`'s, and the
+    variables at the start of the wrapper command, which also apply in a
+    Butter bottle's prefix."""
+    env = run_env(config)
+    env.update(parse_wrapper(config.wrapper_command).env)
+    return env
+
+
 def run_argv(rosemary: Path, config: Config, app: Path, url: str | None) -> list[str]:
     """The command line that starts Roblox. `app` is the Roblox.app folder;
-    rosemary finds the executable inside it."""
-    argv = wrappers(config) + [str(rosemary), "run"]
+    rosemary finds the executable inside it.
+
+    The wrapper command goes around the rest: `<wrapper> gamemoderun mangohud
+    rosemary run … <after>`, so that a wrapper such as gamescope runs GameMode
+    and MangoHud inside it."""
+    wrapper = parse_wrapper(config.wrapper_command)
+    before = list(wrapper.before)
+    if before:
+        found = shutil.which(os.path.expanduser(before[0]))
+        if found is None:
+            raise NutmegError(
+                f"The wrapper command's program, {before[0]}, was not found on PATH. "
+                "Install it, or change the wrapper command in Settings.",
+                settings=True,
+            )
+        before[0] = found
+    argv = before + wrappers(config) + [str(rosemary), "run"]
     mode, _where = engine(config)
     if mode == "native":
         argv.append("--native")
@@ -322,4 +357,4 @@ def run_argv(rosemary: Path, config: Config, app: Path, url: str | None) -> list
     argv.append(str(app))
     if url is not None:
         argv += ["-protocolString", url]
-    return argv
+    return argv + wrapper.after
