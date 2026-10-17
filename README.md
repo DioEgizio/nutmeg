@@ -55,6 +55,38 @@ file there runs as it is, with the system's Python and PyGObject:
 python3 nutmeg-0.1.0.dev202609302341.pyz
 ```
 
+The wheel there installs with pipx in the same way:
+`pipx install --system-site-packages ./nutmeg-0.1.0.dev202609302341-py3-none-any.whl`.
+Both keep themselves up to date (see Updating nutmeg below).
+
+## Updating nutmeg
+
+When "Update nutmeg automatically" is on (the default, on the Integration
+page), a launch started from the browser, the menu or the command line first
+asks GitHub's API for nutmeg's releases
+(`api.github.com/repos/frolleks/nutmeg/releases`). If one is newer than the
+running nutmeg, nutmeg downloads its file from the release, checks it against
+the release's `SHA256SUMS`, installs it, and starts again on it with the same
+link, so that the launch runs on the new version:
+
+- A `.pyz` file is replaced in place, keeping its name and permissions, after
+  the new file has been run once to check that it is the version expected.
+  Menu entries and links that point at the file then run the new version.
+- A wheel installed in a virtual environment, as pipx installs it, is
+  replaced by the release's wheel, installed with that environment's pip
+  (`python -m pip install --no-deps --no-index <wheel>`). `pipx list` goes on
+  showing the version pipx installed; `nutmeg --version` shows the one
+  running.
+- A source checkout is not updated; use `git pull`. Neither is a copy
+  installed some other way, or a `.pyz` nutmeg cannot write to.
+
+Nothing is installed while another nutmeg is running, such as the settings
+window or the `nutmeg watch` that runs alongside Roblox, because a nutmeg
+still running from a replaced `.pyz` could not load the rest of itself. The
+update then waits for a later launch. A launch started from the settings
+window does not update nutmeg either. If the check or the update fails, the
+launch goes on with the running version, and the launch log says why.
+
 ## Setting up
 
 1. In Butter, open Runners and install a rosemary release. Skip this if

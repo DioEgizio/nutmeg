@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Protocol
 
-from . import __version__, desktop, paths, presence, processes, roblox, rosemary
+from . import __version__, desktop, paths, presence, processes, roblox, rosemary, updater
 from .config import Config
 from .errors import Cancelled, NutmegError
 from .protocol import redact
@@ -114,10 +114,21 @@ def _megabytes(count: int) -> str:
 
 
 class Launcher:
-    def __init__(self, config: Config, frontend: Frontend, cancel: threading.Event):
+    def __init__(
+        self,
+        config: Config,
+        frontend: Frontend,
+        cancel: threading.Event,
+        relaunch: Optional[list[str]] = None,
+    ):
+        """`relaunch` is the nutmeg command line that makes this launch, for a
+        launch started on its own: nutmeg updates itself first, and runs it
+        again on the new version. None for a launch from a window that has
+        more to do, which does not update nutmeg."""
         self.config = config
         self.frontend = frontend
         self.cancel = cancel
+        self.relaunch = relaunch
         self.log = LaunchLog()
 
     def run(self, url: Optional[str], start: bool = True) -> Optional[Launched]:
@@ -128,6 +139,7 @@ class Launcher:
         """
         what = f"opening {redact(url)}" if url else ("starting Roblox" if start else "updating Roblox")
         self.log.write(f"nutmeg {__version__}, {what}")
+        self._update_nutmeg()
         binary = rosemary.find_rosemary(self.config)
         arch = rosemary.build_arch(self.config)
         prefix = self.config.prefix()
@@ -152,6 +164,46 @@ class Launcher:
                 self.frontend.progress(1.0)
                 return None
             return self._spawn(binary, url, build)
+
+    def _update_nutmeg(self) -> None:
+        """Install a newer nutmeg and run this launch again on it. A failure
+        is only logged: the launch goes on with this version."""
+        previous = os.environ.pop(updater.UPDATED_FROM, None)
+        if previous is not None:
+            self.log.write(f"updated from nutmeg {previous}")
+            return
+        if self.relaunch is None or not self.config.auto_update:
+            return
+        installation = updater.installation()
+        if installation.kind is None:
+            return
+        self.frontend.status("Checking for nutmeg updates…")
+        self.frontend.progress(None)
+        try:
+            release = updater.newer(installation)
+            if release is None:
+                self.log.write("nutmeg is up to date")
+                return
+            others = processes.nutmeg_processes()
+            if others:
+                self.log.write(
+                    f"nutmeg {release.version} is out, but another nutmeg is running (process "
+                    + ", ".join(map(str, others))
+                    + "), so it is installed at a later launch"
+                )
+                return
+            self.frontend.status(f"Updating nutmeg to {release.version}…")
+            self.log.write(f"installing nutmeg {release.version} from {release.url}")
+            updater.install(installation, release)
+        except NutmegError as e:
+            self.log.write(f"could not update nutmeg: {e}")
+            return
+        self.log.write(f"installed nutmeg {release.version}; starting it again")
+        self.frontend.status(f"Starting nutmeg {release.version}…")
+        try:
+            updater.restart(self.relaunch, __version__)
+        except OSError as e:
+            self.log.write(f"could not start nutmeg {release.version}, so this launch goes on with {__version__}: {e}")
 
     def _waiting(self) -> None:
         self.frontend.status("Waiting for another nutmeg window to finish…")

@@ -73,7 +73,8 @@ def _launch_in_terminal(url: Optional[str], start: bool, assume_yes: bool) -> in
     frontend = TerminalFrontend(assume_yes)
     launcher = None
     try:
-        launcher = Launcher(config, frontend, cancel)
+        relaunch = (["launch"] + ([url] if url else []) if start else ["update"]) + ["--no-gui"]
+        launcher = Launcher(config, frontend, cancel, relaunch + (["--yes"] if assume_yes else []))
         launched = launcher.run(url, start)
         if launched is not None:
             launcher.settle(launched)

@@ -77,7 +77,8 @@ class LaunchWindow(Gtk.ApplicationWindow):
 
     With `start`, Roblox is started and the window closes once it is running;
     without, Roblox is only installed or updated. `on_settings`, if given, is
-    offered when an error is one a setting could fix.
+    offered when an error is one a setting could fix. `relaunch` is passed to
+    the `Launcher`.
     """
 
     def __init__(
@@ -87,6 +88,7 @@ class LaunchWindow(Gtk.ApplicationWindow):
         start: bool,
         parent: Optional[Gtk.Window] = None,
         on_settings: Optional[Callable[[], None]] = None,
+        relaunch: Optional[list[str]] = None,
     ):
         super().__init__(application=application, resizable=False)
         self.set_title("Roblox" if start else "Update Roblox")
@@ -98,6 +100,7 @@ class LaunchWindow(Gtk.ApplicationWindow):
         self._url = url
         self._start = start
         self._on_settings = on_settings
+        self._relaunch = relaunch
         self._working = True
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -160,7 +163,7 @@ class LaunchWindow(Gtk.ApplicationWindow):
         tail = ""
         try:
             config = config_module.load()
-            launcher = Launcher(config, self._frontend, self.cancel)
+            launcher = Launcher(config, self._frontend, self.cancel, self._relaunch)
             log = launcher.log.path
             try:
                 launched = launcher.run(self._url, self._start)

@@ -3,11 +3,14 @@ standing in for Roblox's endpoints, and a fake rosemary."""
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import http.server
 import io
 import json
 import os
 import plistlib
+import re
 import shutil
 import socket
 import stat
@@ -18,6 +21,7 @@ import textwrap
 import threading
 import time
 import unittest
+import zipapp
 import zipfile
 import zlib
 from pathlib import Path
@@ -25,6 +29,8 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import presence, roblox
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def macho(arch: str) -> bytes:
@@ -98,6 +104,41 @@ def roblox_zip(
     return buffer.getvalue()
 
 
+def nutmeg_pyz(version: str) -> bytes:
+    """This checkout's nutmeg as a zipapp stamped with `version`, made the
+    way scripts/build_nightly.py makes one."""
+    with tempfile.TemporaryDirectory(prefix="nutmeg-pyz-") as scratch:
+        staging = Path(scratch) / "app"
+        shutil.copytree(ROOT / "nutmeg", staging / "nutmeg", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        init = staging / "nutmeg/__init__.py"
+        init.write_text(re.sub(r'__version__ = "[^"]*"', f'__version__ = "{version}"', init.read_text()))
+        (staging / "__main__.py").write_text("import sys\n\nfrom nutmeg.cli import main\n\nsys.exit(main())\n")
+        target = Path(scratch) / "nutmeg.pyz"
+        zipapp.create_archive(staging, target, interpreter="/usr/bin/env python3", compressed=True)
+        return target.read_bytes()
+
+
+def fake_wheel(version: str) -> bytes:
+    """A wheel of a stand-in nutmeg that only answers --version."""
+    info = f"nutmeg-{version}.dist-info"
+    files = {
+        "nutmeg/__init__.py": f'__version__ = "{version}"\n',
+        "nutmeg/__main__.py": "import sys\nfrom nutmeg import __version__\nprint('nutmeg', __version__)\n",
+        f"{info}/METADATA": f"Metadata-Version: 2.1\nName: nutmeg\nVersion: {version}\n",
+        f"{info}/WHEEL": "Wheel-Version: 1.0\nGenerator: nutmeg-tests\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+    }
+    record = ""
+    for name, text in files.items():
+        digest = base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).rstrip(b"=").decode()
+        record += f"{name},sha256={digest},{len(text.encode())}\n"
+    files[f"{info}/RECORD"] = record + f"{info}/RECORD,,\n"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return buffer.getvalue()
+
+
 class Server:
     """Serves `routes` (path -> bytes, or path -> int status). A route whose
     value is a (bytes, claimed_length) pair claims a longer body than it sends."""
@@ -134,6 +175,20 @@ class Server:
     def close(self) -> None:
         self.httpd.shutdown()
         self.httpd.server_close()
+
+    def publish_nutmeg(self, tag: str, files: dict[str, bytes], sums: str | None = None) -> None:
+        """Add a nutmeg release to `/releases`, shaped like GitHub's answer,
+        with its files under `/download/<tag>/` and a SHA256SUMS of them
+        (or `sums`). Releases added later are listed first, as on GitHub."""
+        if sums is None:
+            sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in files.items())
+        files = dict(files, SHA256SUMS=sums.encode())
+        for name, data in files.items():
+            self.routes[f"/download/{tag}/{name}"] = data
+        assets = [{"name": name, "browser_download_url": f"{self.url}/download/{tag}/{name}"} for name in files]
+        releases = json.loads(self.routes.get("/releases", b"[]"))
+        releases.insert(0, {"tag_name": tag, "draft": False, "prerelease": True, "assets": assets})
+        self.routes["/releases"] = json.dumps(releases).encode()
 
     def publish(self, guid: str, version: str, archives: dict[str, bytes], hosts: list[str]) -> None:
         self.routes["/client-version"] = json.dumps(

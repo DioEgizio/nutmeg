@@ -110,6 +110,7 @@ class Config:
     video_driver: str = ""
     discord_presence: bool = True
     close_on_leave: bool = False
+    auto_update: bool = True
     use_gamemode: bool = False
     use_mangohud: bool = False
     extra_env: dict = field(default_factory=dict)
@@ -158,6 +159,7 @@ class Config:
             "process_server",
             "discord_presence",
             "close_on_leave",
+            "auto_update",
             "use_gamemode",
             "use_mangohud",
         ):

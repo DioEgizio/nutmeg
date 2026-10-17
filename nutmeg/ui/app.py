@@ -38,6 +38,7 @@ class Application(Gtk.Application):
                 url=self._url,
                 start=self._mode == "launch",
                 on_settings=self._open_settings,
+                relaunch=[self._mode] + ([self._url] if self._url else []),
             ).present()
 
 

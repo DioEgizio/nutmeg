@@ -14,16 +14,20 @@ from pathlib import Path
 from unittest import mock
 
 from nutmeg import launcher as launcher_module
-from nutmeg import desktop, paths, processes, roblox, rosemary
+from nutmeg import __version__, desktop, paths, processes, roblox, rosemary, updater
 from nutmeg.config import Config
 from nutmeg.errors import Cancelled, NutmegError
 from nutmeg.launcher import Launcher
 
-from helpers import Sandbox, Server, roblox_zip
+from helpers import Sandbox, Server, nutmeg_pyz, roblox_zip
 
 GUID_A = "version-aaaaaaaaaaaaaaaa"
 GUID_B = "version-bbbbbbbbbbbbbbbb"
 URL = "roblox-player:1+launchmode:play+gameinfo:ticket+launchtime:1+browsertrackerid:2"
+
+
+class Restarted(Exception):
+    """Stands in for nutmeg replacing itself with the updated nutmeg."""
 
 
 class Frontend:
@@ -73,9 +77,9 @@ class LaunchTests(Sandbox):
         self.server.close()
         super().tearDown()
 
-    def launch(self, frontend=None, url=URL, start=True, cancel=None):
+    def launch(self, frontend=None, url=URL, start=True, cancel=None, relaunch=None):
         frontend = frontend or Frontend()
-        launcher = Launcher(self.config, frontend, cancel or threading.Event())
+        launcher = Launcher(self.config, frontend, cancel or threading.Event(), relaunch)
         try:
             launched = launcher.run(url, start)
             if launched is not None:
@@ -217,6 +221,72 @@ class LaunchTests(Sandbox):
         self.assertIsNone(launched.process.poll())
         self.assertIn(f"\nIcon={desktop.FALLBACK_ICON}\n", entry.read_text())
         self.assertIn("could not update the menu entry's icon: ", launched.log.read_text())
+
+    def offer_nutmeg(self, sums=None) -> Path:
+        """A nutmeg 0.1.0.dev1 .pyz to update, and nutmeg 0.2.0.dev1 on the
+        stand-in GitHub. Restarting raises `Restarted`."""
+        archive = self.root / "nutmeg.pyz"
+        archive.write_bytes(nutmeg_pyz("0.1.0.dev1"))
+        self.server.publish_nutmeg("n", {"nutmeg-0.2.0.dev1.pyz": nutmeg_pyz("0.2.0.dev1")}, sums)
+        for patch in (
+            mock.patch.object(updater, "RELEASES_URL", f"{self.server.url}/releases"),
+            mock.patch.object(updater, "DOWNLOADS", f"{self.server.url}/download/"),
+            mock.patch.object(updater, "installation", return_value=updater.Installation("pyz", archive, "")),
+            mock.patch.object(updater, "restart", side_effect=Restarted),
+            mock.patch.object(processes, "nutmeg_processes", return_value=[]),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        return archive
+
+    def last_log(self) -> str:
+        return sorted(paths.logs_dir().glob("launch-*.log"))[-1].read_text()
+
+    def test_nutmeg_updates_itself_first(self):
+        archive = self.offer_nutmeg()
+        frontend = Frontend()
+        with self.assertRaises(Restarted):
+            self.launch(frontend, relaunch=["launch", URL])
+        updater.restart.assert_called_once_with(["launch", URL], __version__)
+        version = subprocess.run([sys.executable, str(archive), "--version"], capture_output=True, text=True)
+        self.assertEqual(version.stdout.strip(), "nutmeg 0.2.0.dev1")
+        self.assertIn(("Updating nutmeg to 0.2.0.dev1…", ""), frontend.statuses)
+        self.assertIn("installed nutmeg 0.2.0.dev1; starting it again", self.last_log())
+        # Roblox was left for the new nutmeg to start.
+        self.assertFalse((self.root / "record.json").exists())
+
+    def test_the_updated_nutmeg_goes_on_with_the_launch(self):
+        self.offer_nutmeg()
+        os.environ[updater.UPDATED_FROM] = "0.1.0.dev1"
+        launched, _, _ = self.launch(relaunch=["launch", URL])
+        self.assertIsNone(launched.process.poll())
+        self.assertNotIn("/releases", self.server.requests)
+        self.assertNotIn(updater.UPDATED_FROM, os.environ)
+        self.assertIn("updated from nutmeg 0.1.0.dev1", launched.log.read_text())
+
+    def test_no_update_when_off_or_from_a_window(self):
+        self.offer_nutmeg()
+        self.launch()
+        self.config.auto_update = False
+        self.launch(relaunch=["launch", URL])
+        self.assertNotIn("/releases", self.server.requests)
+
+    def test_the_update_waits_while_another_nutmeg_runs(self):
+        archive = self.offer_nutmeg()
+        before = archive.read_bytes()
+        processes.nutmeg_processes.return_value = [4321]
+        launched, _, _ = self.launch(relaunch=["launch", URL])
+        self.assertIsNone(launched.process.poll())
+        self.assertEqual(archive.read_bytes(), before)
+        self.assertIn("nutmeg 0.2.0.dev1 is out, but another nutmeg is running (process 4321)", launched.log.read_text())
+
+    def test_a_failed_update_does_not_stop_the_launch(self):
+        archive = self.offer_nutmeg(sums="0" * 64 + "  nutmeg-0.2.0.dev1.pyz\n")
+        before = archive.read_bytes()
+        launched, _, _ = self.launch(relaunch=["launch", URL])
+        self.assertIsNone(launched.process.poll())
+        self.assertEqual(archive.read_bytes(), before)
+        self.assertIn("could not update nutmeg: nutmeg-0.2.0.dev1.pyz does not match its checksum", launched.log.read_text())
 
     def test_update_replaces_the_old_build(self):
         self.launch(start=False)

@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from gi.repository import GLib, Gtk
 
-from .. import __version__, butter, desktop, paths, processes, roblox, rosemary
+from .. import __version__, butter, desktop, paths, processes, roblox, rosemary, updater
 from .. import config as config_module
 from ..config import Config, ConfigError
 from ..errors import Cancelled, NutmegError
@@ -525,6 +525,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         remove = Gtk.Button(label="Remove")
         remove.connect("clicked", lambda _b: self._uninstall_desktop())
         self._discord = Gtk.Switch()
+        self._auto_update = Gtk.Switch()
         logs = Gtk.Button(label="Open Logs Folder")
         logs.connect("clicked", lambda _b: self._open_logs())
         rows = [_row("Menu entries", self._entries_state)]
@@ -559,7 +560,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 "Each launch writes one log with nutmeg's steps and everything rosemary and Roblox print.",
             ),
             _buttons(logs),
-            _label(f"nutmeg {__version__}", dim=True),
+            _group(
+                "nutmeg",
+                [
+                    _row("Version", _label(__version__)),
+                    _row(
+                        "Update nutmeg automatically",
+                        self._auto_update,
+                        "When Roblox is started from the browser, the menu or the command line, "
+                        "nutmeg first installs its newest release from GitHub, if there is a newer "
+                        "one, and starts again on it. " + updater.installation().description,
+                    ),
+                ],
+            ),
         )
 
     # Moving settings between the widgets and a Config.
@@ -585,6 +598,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._video_driver.set(config.video_driver)
         self._discord.set_active(config.discord_presence)
         self._close_on_leave.set_active(config.close_on_leave)
+        self._auto_update.set_active(config.auto_update)
         self._env_view.get_buffer().set_text(format_env(config.extra_env))
         self._flags.set_flags(config.fast_flags)
 
@@ -610,6 +624,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             video_driver=self._video_driver.get(),
             discord_presence=self._discord.get_active(),
             close_on_leave=self._close_on_leave.get_active(),
+            auto_update=self._auto_update.get_active(),
             extra_env=parse_env(_text_of(self._env_view)),
             fast_flags=self._flags.get_flags(),
         )
