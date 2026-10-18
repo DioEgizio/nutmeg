@@ -75,14 +75,34 @@ def toplevels() -> list:
 
 def dialog_titled(title: str):
     """The dialog open with `title`, in any window, or None. A dialog is
-    inside the window it was opened over, or a window of its own."""
+    inside the window it was opened over, or a window of its own. A dialog
+    that is closing is no longer listed by its window."""
     for window in toplevels():
         if not window.get_visible():
             continue
-        for dialog in find_all(window, Adw.Dialog):
+        if isinstance(window, (Adw.ApplicationWindow, Adw.Window)):
+            listed = window.get_dialogs()
+            dialogs = [listed.get_item(i) for i in range(listed.get_n_items())]
+        else:
+            dialogs = find_all(window, Adw.Dialog)
+        for dialog in dialogs:
             if dialog.get_title() == title:
                 return dialog
     return None
+
+
+def opened(dialog) -> bool:
+    """Run the main loop until `dialog` has drawn a few frames. libadwaita
+    opens a dialog on its second frame, and closing it before then does
+    nothing in libadwaita 1.5, so an answer given earlier is lost."""
+    frames = []
+
+    def tick(_widget, _clock) -> bool:
+        frames.append(None)
+        return len(frames) < 3
+
+    dialog.add_tick_callback(tick)
+    return pump(lambda: len(frames) >= 3, 5)
 
 
 def buttons(widget) -> list:
@@ -113,7 +133,9 @@ def find(widget, kind):
 
 def click(widget, label: str) -> None:
     """Click the button in `widget` labelled `label`, or with that tooltip
-    if it shows an icon."""
+    if it shows an icon. A dialog is first left to finish opening."""
+    if isinstance(widget, Adw.Dialog):
+        assert opened(widget), f"{widget.get_title()!r} did not open"
     for button in buttons(widget):
         if label in (button.get_label(), button.get_tooltip_text()):
             button.emit("clicked")
