@@ -32,11 +32,11 @@ jobs:
 
       # The system Python is used throughout, because PyGObject comes from
       # the distribution and is built for it.
-      - name: Install GTK 4 and the test tools
+      - name: Install GTK 4, libadwaita and the test tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            python3-gi python3-venv gir1.2-gtk-4.0 xvfb xauth xdg-utils desktop-file-utils
+            python3-gi python3-venv gir1.2-gtk-4.0 gir1.2-adw-1 xvfb xauth xdg-utils desktop-file-utils
 
       - name: Test
         run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v
@@ -129,11 +129,11 @@ jobs:
 
       # The AppImage carries these, from Ubuntu 24.04, so it runs on systems
       # with glibc 2.39 or newer.
-      - name: Install Python, GTK 4 and the tools
+      - name: Install Python, GTK 4, libadwaita and the tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            python3 python3-gi gir1.2-gtk-4.0 librsvg2-common libglib2.0-bin \
+            python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 librsvg2-common libglib2.0-bin \
             squashfs-tools patchelf xvfb xauth xdg-utils desktop-file-utils
 
       # A fixed release of the AppImage runtime, checked against its checksum.

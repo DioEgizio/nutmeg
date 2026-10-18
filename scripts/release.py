@@ -115,7 +115,7 @@ def _file_note(name: str, version: str) -> tuple[int, str]:
     """Where a release file is listed, and what is said about it."""
     if name == f"nutmeg-{version}.pyz":
         return 0, (
-            f"run with `python3 {name}`. PyGObject and GTK 4 come from your distribution, "
+            f"run with `python3 {name}`. PyGObject, GTK 4 and libadwaita come from your distribution, "
             "as the README describes."
         )
     if name == f"nutmeg-{version}-py3-none-any.whl":

@@ -24,6 +24,7 @@
             packages = with pkgs; [
               python
               gtk4
+              libadwaita
               gobject-introspection
               glib
               xdg-utils

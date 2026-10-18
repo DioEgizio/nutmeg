@@ -105,8 +105,9 @@ def _gui(mode: str, url: Optional[str]) -> int:
         from .ui import app
     except (ImportError, ValueError) as e:
         print(
-            f"nutmeg: GTK 4 for Python is not available ({e}). Install PyGObject and "
-            "GTK 4 (on Debian and Ubuntu: python3-gi gir1.2-gtk-4.0), or use --no-gui.",
+            f"nutmeg: GTK 4 and libadwaita for Python are not available ({e}). Install "
+            "PyGObject, GTK 4 and libadwaita (on Debian and Ubuntu: python3-gi "
+            "gir1.2-gtk-4.0 gir1.2-adw-1), or use --no-gui.",
             file=sys.stderr,
         )
         return 1

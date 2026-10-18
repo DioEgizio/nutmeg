@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from gi.repository import GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
 from .. import __version__, butter, desktop, paths, processes, roblox, rosemary, updater
 from .. import config as config_module
@@ -41,91 +41,123 @@ def format_env(env: dict[str, str]) -> str:
 
 
 class Choice:
-    """A drop-down over (value, label) pairs."""
+    """A row with a drop-down over (value, label) pairs. Unlike a combo row's,
+    the drop-down shows its whole label next to a long subtitle."""
 
-    def __init__(self, options: list[tuple[str, str]]):
+    def __init__(self, title: str, options: list[tuple[str, str]], subtitle: Optional[str] = None):
         self.values = [value for value, _ in options]
-        self.widget = Gtk.DropDown.new_from_strings([label for _, label in options])
-        self.widget.set_valign(Gtk.Align.CENTER)
+        self.dropdown = Gtk.DropDown.new_from_strings([label for _, label in options])
+        self.dropdown.add_css_class("flat")
+        self.widget = _row(title, subtitle, self.dropdown)
 
     def get(self) -> str:
-        return self.values[self.widget.get_selected()]
+        return self.values[self.dropdown.get_selected()]
 
     def set(self, value: str) -> None:
-        self.widget.set_selected(self.values.index(value) if value in self.values else 0)
+        self.dropdown.set_selected(self.values.index(value) if value in self.values else 0)
 
 
 class PathChoice:
-    """A drop-down over (path, label) pairs, the first of which is the empty
-    default, followed by an "other" item that shows an entry and a Browse
-    button for any other path."""
+    """A combo row over (path, label) pairs, the first of which is the empty
+    default, followed by an "other" item that shows an entry row, with a
+    Browse button, for any other path. `rows` are the two rows. The chosen
+    label, which holds a path, is the combo row's subtitle, where it has
+    room."""
 
     _OTHER = object()
 
-    def __init__(self, options: list[tuple[str, str]], other_label: str, other: Gtk.Widget, entry: Gtk.Entry):
+    def __init__(
+        self,
+        title: str,
+        options: list[tuple[str, str]],
+        other_label: str,
+        entry_title: str,
+        folder: bool,
+        browse_title: str,
+    ):
         self.values: list = [value for value, _ in options] + [self._OTHER]
-        self.dropdown = Gtk.DropDown.new_from_strings([label for _, label in options] + [other_label])
-        self.dropdown.set_halign(Gtk.Align.START)
-        self.entry = entry
-        self._other = other
-        self.widget = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.widget.append(self.dropdown)
-        self.widget.append(other)
-        self.dropdown.connect("notify::selected", lambda *_a: self._sync())
+        self.combo = Adw.ComboRow(
+            title=title,
+            use_subtitle=True,
+            use_markup=False,
+            model=Gtk.StringList.new([label for _, label in options] + [other_label]),
+        )
+        self.entry = Adw.EntryRow(title=entry_title, use_markup=False)
+        browse = Gtk.Button(icon_name="document-open-symbolic", tooltip_text="Browse…", valign=Gtk.Align.CENTER)
+        browse.add_css_class("flat")
+        browse.connect("clicked", lambda _b: dialogs.pick_file(self.entry, browse_title, folder, self.entry.set_text))
+        self.entry.add_suffix(browse)
+        self.rows = [self.combo, self.entry]
+        self.combo.connect("notify::selected", lambda *_a: self._sync())
         self._sync()
 
     def _other_selected(self) -> bool:
-        return self.values[self.dropdown.get_selected()] is self._OTHER
+        return self.values[self.combo.get_selected()] is self._OTHER
 
     def _sync(self) -> None:
-        self._other.set_visible(self._other_selected())
+        self.entry.set_visible(self._other_selected())
 
     def get(self) -> str:
         if self._other_selected():
             return self.entry.get_text().strip()
-        return self.values[self.dropdown.get_selected()]
+        return self.values[self.combo.get_selected()]
 
     def set(self, value: str) -> None:
         if value in self.values:
-            self.dropdown.set_selected(self.values.index(value))
+            self.combo.set_selected(self.values.index(value))
             self.entry.set_text("")
         else:
-            self.dropdown.set_selected(len(self.values) - 1)
+            self.combo.set_selected(len(self.values) - 1)
             self.entry.set_text(value)
 
     def connect_changed(self, callback: Callable[[], None]) -> None:
-        self.dropdown.connect("notify::selected", lambda *_a: callback())
+        self.combo.connect("notify::selected", lambda *_a: callback())
         self.entry.connect("changed", lambda _e: callback())
 
 
-def _margins(widget: Gtk.Widget, size: int) -> None:
-    for side in ("top", "bottom", "start", "end"):
-        getattr(widget, f"set_margin_{side}")(size)
+def _row(title: str, subtitle: Optional[str] = None, *suffixes: Gtk.Widget) -> Adw.ActionRow:
+    """A row with `suffixes` at its end. Its text is shown as it is, not as
+    markup, as is every row's here."""
+    row = Adw.ActionRow(title=title, use_markup=False)
+    if subtitle:
+        row.set_subtitle(subtitle)
+    for widget in suffixes:
+        widget.set_valign(Gtk.Align.CENTER)
+        row.add_suffix(widget)
+    return row
 
 
-def _label(text: str, *, dim: bool = False, wrap: bool = True) -> Gtk.Label:
-    label = Gtk.Label(label=text, xalign=0, wrap=wrap)
-    if dim:
-        label.add_css_class("dim-label")
+def _property(title: str, value: str = "", *suffixes: Gtk.Widget) -> Adw.ActionRow:
+    """A row that shows a value, which can be selected, under its name."""
+    row = _row(title, None, *suffixes)
+    row.set_subtitle(value)
+    row.set_subtitle_selectable(True)
+    row.add_css_class("property")
+    return row
+
+
+def _switch(title: str, subtitle: Optional[str] = None) -> Adw.SwitchRow:
+    return Adw.SwitchRow(title=title, subtitle=subtitle or "", use_markup=False)
+
+
+def _value(text: str) -> Gtk.Label:
+    """A short value shown at the end of a row."""
+    label = Gtk.Label(label=text)
+    label.add_css_class("dim-label")
     return label
 
 
-def _text_rows(title: str, subtitle: Optional[str]) -> Gtk.Box:
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
-    box.append(_label(title))
-    if subtitle:
-        box.append(_label(subtitle, dim=True))
-    return box
+def _button(label: str, on_clicked: Callable[[], None], style: Optional[str] = None) -> Gtk.Button:
+    button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+    if style:
+        button.add_css_class(style)
+    button.connect("clicked", lambda _b: on_clicked())
+    return button
 
 
-def _row(title: str, widget: Gtk.Widget, subtitle: Optional[str] = None) -> Gtk.Widget:
-    """A setting with its control on the right."""
-    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-    _margins(box, 8)
-    box.append(_text_rows(title, subtitle))
-    widget.set_valign(Gtk.Align.CENTER)
-    box.append(widget)
-    return box
+def _note() -> Gtk.Label:
+    """An explanation under a group's rows, shown only at times."""
+    return Gtk.Label(xalign=0, wrap=True, visible=False, margin_top=12)
 
 
 def _missing(program: str) -> str:
@@ -133,53 +165,28 @@ def _missing(program: str) -> str:
     return "" if shutil.which(program) else f" {program} was not found on PATH."
 
 
-def _wide_row(title: str, widget: Gtk.Widget, subtitle: Optional[str] = None) -> Gtk.Widget:
-    """A setting with its control underneath, for paths and text."""
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    _margins(box, 8)
-    box.append(_text_rows(title, subtitle))
-    box.append(widget)
-    return box
-
-
-def _group(title: str, rows: list[Gtk.Widget], description: Optional[str] = None) -> Gtk.Widget:
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    heading = Gtk.Label(xalign=0)
-    heading.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
-    box.append(heading)
+def _group(
+    title: str,
+    rows: list[Gtk.Widget],
+    description: Optional[str] = None,
+    suffix: Optional[Gtk.Widget] = None,
+) -> Adw.PreferencesGroup:
+    """A group of rows. Other widgets in `rows` go under the rows."""
+    group = Adw.PreferencesGroup(title=title)
     if description:
-        box.append(_label(description, dim=True))
-    listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-    listbox.add_css_class("rich-list")
-    for child in rows:
-        listbox.append(Gtk.ListBoxRow(activatable=False, selectable=False, child=child))
-    box.append(Gtk.Frame(child=listbox))
-    return box
+        group.set_description(description)
+    if suffix is not None:
+        group.set_header_suffix(suffix)
+    for row in rows:
+        group.add(row)
+    return group
 
 
-def _buttons(*buttons: Gtk.Button) -> Gtk.Box:
-    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.START)
-    for button in buttons:
-        box.append(button)
-    return box
-
-
-def _page(*children: Gtk.Widget) -> Gtk.Widget:
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
-    _margins(box, 18)
-    for child in children:
-        box.append(child)
-    return Gtk.ScrolledWindow(child=box, hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
-
-
-def _text_view(height: int) -> tuple[Gtk.TextView, Gtk.Widget]:
-    view = Gtk.TextView(monospace=True, accepts_tab=False)
-    view.set_wrap_mode(Gtk.WrapMode.CHAR)
-    for side in ("top", "bottom", "left", "right"):
-        getattr(view, f"set_{side}_margin")(6)
-    scroller = Gtk.ScrolledWindow(child=view)
-    scroller.set_min_content_height(height)
-    return view, Gtk.Frame(child=scroller)
+def _page(*groups: Adw.PreferencesGroup) -> Adw.PreferencesPage:
+    page = Adw.PreferencesPage()
+    for group in groups:
+        page.add(group)
+    return page
 
 
 def _text_of(view: Gtk.TextView) -> str:
@@ -187,50 +194,55 @@ def _text_of(view: Gtk.TextView) -> str:
     return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
 
 
-class SettingsWindow(Gtk.ApplicationWindow):
+class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, application: Gtk.Application):
         super().__init__(application=application, title="nutmeg Settings")
-        self.set_default_size(700, 640)
+        self.set_default_size(780, 720)
         self._closing = False
         self._busy = False
-        self._chooser = None
+        self._working: Optional[Adw.Toast] = None
         self._own_groups: list[Gtk.Widget] = []
         problem = None
         try:
             self._saved = config_module.load()
         except ConfigError as e:
             self._saved = Config()
-            problem = f"The saved settings could not be read, so the defaults are shown. Saving replaces them.\n{e}"
+            problem = f"The saved settings could not be read, so the defaults are shown. Saving replaces them. {e}"
         # The file on disk is unusable, so it is written even if nothing changes.
         self._must_save = problem is not None
 
-        header = Gtk.HeaderBar()
-        self._stack = Gtk.Stack(vexpand=True)
-        header.set_title_widget(Gtk.StackSwitcher(stack=self._stack))
-        save = Gtk.Button(label="Save")
-        save.add_css_class("suggested-action")
-        save.connect("clicked", lambda _b: self._save())
+        self._stack = Adw.ViewStack(vexpand=True)
+        self._stack.add_titled_with_icon(self._roblox_page(), "roblox", "Roblox", "applications-games-symbolic")
+        self._stack.add_titled_with_icon(self._rosemary_page(), "rosemary", "rosemary", "applications-system-symbolic")
+        self._stack.add_titled_with_icon(self._flags_page(), "flags", "FastFlags", "emoji-flags-symbolic")
+        self._stack.add_titled_with_icon(
+            self._integration_page(), "integration", "Integration", "preferences-other-symbolic"
+        )
+
+        save = _button("Save", self._save, "suggested-action")
+        switcher = Adw.ViewSwitcher(stack=self._stack, policy=Adw.ViewSwitcherPolicy.WIDE)
+        header = Adw.HeaderBar(title_widget=switcher)
         header.pack_end(save)
-        self.set_titlebar(header)
+        # Errors stay shown until they are dismissed or the settings are
+        # saved; other messages come and go as toasts.
+        self._message = Adw.Banner(use_markup=False, button_label="Dismiss")
+        self._message.connect("button-clicked", lambda _b: self._message.set_revealed(False))
+        self._toasts = Adw.ToastOverlay(child=self._stack)
+        bottom = Adw.ViewSwitcherBar(stack=self._stack)
+        view = Adw.ToolbarView(content=self._toasts)
+        view.add_top_bar(header)
+        view.add_top_bar(self._message)
+        view.add_bottom_bar(bottom)
+        self.set_content(view)
+        # In a narrow window the pages are switched at the bottom instead.
+        narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 640sp"))
+        narrow.add_setter(header, "title-widget", GObject.Value(Gtk.Widget, None))
+        narrow.add_setter(bottom, "reveal", True)
+        self.add_breakpoint(narrow)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        if problem:
-            banner = _label(problem)
-            banner.add_css_class("error")
-            _margins(banner, 12)
-            outer.append(banner)
-        outer.append(self._stack)
-        self._message = _label("")
-        _margins(self._message, 10)
-        self._message.set_visible(False)
-        outer.append(self._message)
-        self.set_child(outer)
-
-        self._stack.add_titled(self._roblox_page(), "roblox", "Roblox")
-        self._stack.add_titled(self._rosemary_page(), "rosemary", "rosemary")
-        self._stack.add_titled(self._flags_page(), "flags", "FastFlags")
-        self._stack.add_titled(self._integration_page(), "integration", "Integration")
         self._fill(self._saved)
+        if problem:
+            self._say(problem, error=True)
         self._refresh()
         self._refresh_integration()
         self.connect("close-request", self._close_requested)
@@ -239,260 +251,187 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _roblox_page(self) -> Gtk.Widget:
         host = rosemary.host_arch()
-        self._installed = _label("", wrap=True)
-        self._installed.set_selectable(True)
-        self._launch_button = Gtk.Button(label="Launch Roblox")
-        self._launch_button.add_css_class("suggested-action")
-        self._launch_button.connect("clicked", lambda _b: self._launch(start=True))
-        self._update_button = Gtk.Button(label="Update Roblox")
-        self._update_button.connect("clicked", lambda _b: self._launch(start=False))
-        self._reinstall_button = Gtk.Button(label="Remove Installed Builds")
-        self._reinstall_button.connect("clicked", lambda _b: self._remove_builds())
+        self._launch_button = _button("Launch Roblox", lambda: self._launch(start=True), "suggested-action")
+        self._update_button = _button("Update", lambda: self._launch(start=False))
+        self._reinstall_button = _button("Remove", self._remove_builds, "destructive-action")
+        self._installed = _property("Installed version", "", self._launch_button)
         self._architecture = Choice(
+            "Build",
             [
                 ("auto", f"Automatic ({host})" if host else "Automatic"),
                 ("x86_64", "x86_64 (Intel)"),
                 ("arm64", "arm64 (Apple silicon)"),
-            ]
+            ],
+            f"This computer is {host or 'not a supported architecture'}. "
+            "rosemary can emulate the x86_64 build on AArch64, but cannot emulate arm64.",
         )
         self._engine = Choice(
-            [("auto", "Automatic"), ("native", "Native"), ("emulated", "Emulated")]
+            "Execution",
+            [("auto", "Automatic"), ("native", "Native"), ("emulated", "Emulated")],
+            "Automatic runs the build natively when it matches this computer, "
+            "and recompiles x86_64 otherwise (rosemary run --native / --emulated).",
         )
-        self._engine_note = _label("", dim=True)
-        self._engine_note.set_visible(False)
-        self._close_on_leave = Gtk.Switch()
+        self._engine_note = _note()
+        self._close_on_leave = _switch(
+            "Close Roblox when you leave an experience",
+            "When you leave an experience, Roblox closes instead of going back to its home screen.",
+        )
         return _page(
-            _group("Installed", [_row("Version", self._installed)]),
-            _buttons(self._launch_button, self._update_button, self._reinstall_button),
             _group(
-                "Build",
+                "Roblox",
                 [
+                    self._installed,
+                    _row("Update Roblox", "Download the newest version without starting it.", self._update_button),
                     _row(
-                        "Build",
-                        self._architecture.widget,
-                        f"This computer is {host or 'not a supported architecture'}. "
-                        "rosemary can emulate the x86_64 build on AArch64, but cannot emulate arm64.",
-                    ),
-                    _row(
-                        "Execution",
-                        self._engine.widget,
-                        "Automatic runs the build natively when it matches this computer, "
-                        "and recompiles x86_64 otherwise (rosemary run --native / --emulated).",
+                        "Remove installed builds",
+                        "The next launch downloads Roblox again. Your Roblox settings and data "
+                        "in the prefix are kept.",
+                        self._reinstall_button,
                     ),
                 ],
             ),
-            self._engine_note,
-            _group(
-                "Experiences",
-                [
-                    _row(
-                        "Close Roblox when you leave an experience",
-                        self._close_on_leave,
-                        "When you leave an experience, Roblox closes instead of going "
-                        "back to its home screen.",
-                    ),
-                ],
-            ),
+            _group("Build", [self._architecture.widget, self._engine.widget, self._engine_note]),
+            _group("Experiences", [self._close_on_leave]),
         )
-
-    def _path_entry(self, placeholder: str, folder: bool, title: str) -> tuple[Gtk.Entry, Gtk.Widget]:
-        entry = Gtk.Entry(hexpand=True, placeholder_text=placeholder)
-        browse = Gtk.Button(label="Browse…")
-        browse.connect("clicked", lambda _b: self._browse(entry, folder, title))
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        box.append(entry)
-        box.append(browse)
-        return entry, box
 
     def _rosemary_page(self) -> Gtk.Widget:
         found = shutil.which("rosemary")
-        entry, box = self._path_entry("/path/to/rosemary", False, "Choose the rosemary program")
         self._rosemary_choice = PathChoice(
+            "rosemary program",
             [("", f"rosemary on PATH ({found or 'not found'})")]
             + [(str(runner.executable), runner.label()) for runner in butter.runners()],
             "Another program…",
-            box,
-            entry,
+            "Path to rosemary",
+            False,
+            "Choose the rosemary program",
         )
-        entry, box = self._path_entry("/path/to/prefix", True, "Choose the prefix folder")
         self._prefix_choice = PathChoice(
+            "Prefix",
             [("", f"nutmeg's own ({paths.default_prefix()})")]
             + [(str(bottle.prefix), bottle.label()) for bottle in butter.bottles()],
             "Another folder…",
-            box,
-            entry,
+            "Path to the prefix folder",
+            True,
+            "Choose the prefix folder",
         )
         self._prefix_choice.connect_changed(self._refresh_prefix)
-        self._prefix_status = _label("")
-        self._base_button = Gtk.Button(label="Install Darwin Base")
-        self._base_button.connect("clicked", lambda _b: self._install_base())
-        self._repair_button = Gtk.Button(label="Repair Prefix")
-        self._repair_button.connect("clicked", lambda _b: self._repair_prefix())
-        prefix_actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        _margins(prefix_actions, 8)
-        prefix_actions.append(self._prefix_status)
-        self._bottle_note = _label("")
-        self._bottle_note.set_visible(False)
-        prefix_actions.append(self._bottle_note)
-        prefix_actions.append(_buttons(self._base_button, self._repair_button))
+        self._base_button = _button("Install Darwin Base", self._install_base)
+        self._repair_button = _button("Repair", self._repair_prefix)
+        self._prefix_status = _row("Prefix state", None, self._base_button, self._repair_button)
+        self._bottle_note = _note()
 
         self._swap = Choice(
-            [("", "Default"), ("0", "Off (0)"), ("1", "On (1)"), ("-1", "Adaptive (-1)")]
+            "VSync",
+            [("", "Default"), ("0", "Off (0)"), ("1", "On (1)"), ("-1", "Adaptive (-1)")],
+            "ROSEMARY_SWAP_INTERVAL",
         )
         self._decorations = Choice(
-            [("", "Default"), ("client", "Drawn by rosemary"), ("server", "Drawn by the window manager")]
+            "Title bar",
+            [("", "Default"), ("client", "Drawn by rosemary"), ("server", "Drawn by the window manager")],
+            "ROSEMARY_DECORATIONS",
         )
         self._menu = Choice(
-            [("", "Default"), ("titlebar", "In the title bar"), ("strip", "In a row below it"), ("none", "Hidden")]
+            "Menus",
+            [("", "Default"), ("titlebar", "In the title bar"), ("strip", "In a row below it"), ("none", "Hidden")],
+            "ROSEMARY_MENU. With the window manager's title bar, menus go in a row below it.",
         )
-        self._menu_ctrl = Gtk.Switch()
-        self._confine = Gtk.Switch()
-        self._gamemode = Gtk.Switch()
-        self._mangohud = Gtk.Switch()
-        self._wrapper = Gtk.Entry(placeholder_text="gamescope -f -- %command%", hexpand=True)
+        self._menu_ctrl = _switch("Control works as Command in menu shortcuts", "ROSEMARY_MENU_CTRL")
+        self._confine = _switch("Keep the pointer inside the window", "ROSEMARY_CONFINE_POINTER")
+        self._gamemode = _switch(
+            "Run with GameMode",
+            "Starts Roblox with gamemoderun, which asks Feral's GameMode to tune the "
+            "system while Roblox runs." + _missing("gamemoderun"),
+        )
+        self._mangohud = _switch(
+            "Show the MangoHud overlay",
+            "Starts Roblox with mangohud, which draws the frame rate and other "
+            "statistics over the game." + _missing("mangohud"),
+        )
+        self._wrapper = Adw.EntryRow(title="Wrapper command", use_markup=False)
         self._prefix_home = Choice(
-            [("", "Default"), ("prefix", "Inside the prefix"), ("host", "Your home folder")]
+            "Home folder",
+            [("", "Default"), ("prefix", "Inside the prefix"), ("host", "Your home folder")],
+            "ROSEMARY_PREFIX_HOME. With your home folder, the guest's /Users/<name> is "
+            "your real home folder, so Roblox's files go there instead of into the prefix.",
         )
-        self._process_server = Gtk.Switch()
+        self._process_server = _switch(
+            "Process server",
+            "ROSEMARY_SERVER. Lets rosemary's programs see each other. When nutmeg "
+            "closes a running Roblox, it also stops the server (rosemary server --stop).",
+        )
         self._presentation = Choice(
+            "Presentation mode",
             [
                 ("", "Default"),
                 ("immediate", "Immediate"),
                 ("fifo", "FIFO"),
                 ("fifo_relaxed", "FIFO relaxed"),
                 ("mailbox", "Mailbox"),
-            ]
+            ],
+            "ROSEMARY_METAL_PRESENTATION_MODE, the Vulkan present mode behind Metal. "
+            "By default rosemary uses Mailbox, or FIFO when the driver has no Mailbox.",
         )
-        self._refresh_rate = Gtk.Entry(placeholder_text="The display's", width_chars=10)
+        self._refresh_rate = Gtk.Entry(placeholder_text="The display's", width_chars=12)
         self._video_driver = Choice(
-            [("", "Default"), ("wayland", "Wayland"), ("x11", "X11 (XWayland)")]
+            "Display server",
+            [("", "Default"), ("wayland", "Wayland"), ("x11", "X11 (XWayland)")],
+            "SDL_VIDEO_DRIVER, read by SDL, which rosemary opens its windows with. "
+            "By default SDL uses Wayland when the compositor supports the fifo-v1 "
+            "protocol, and X11 otherwise, which is XWayland on a Wayland desktop. "
+            "Wayland needs a Wayland session.",
         )
-        self._dead_flags = Gtk.Switch()
-        self._call_return = Gtk.Switch()
-        self._env_view, env_box = _text_view(90)
+        self._dead_flags = _switch(
+            "Dead flag elimination",
+            "ROSEMARY_DEAD_FLAGS. rosemary's docs warn that it may have semantic accuracy bugs.",
+        )
+        self._call_return = _switch("Native call return", "ROSEMARY_CALL_RETURN")
+        self._env_view, env_box = dialogs.text_box("", 90, editable=True)
         return _page(
             _group(
                 "rosemary",
-                [
-                    _wide_row(
-                        "rosemary program",
-                        self._rosemary_choice.widget,
-                        "The runners Butter has installed are listed here. To add one, install "
-                        "it on Butter's Runners page, then reopen these settings.",
-                    ),
-                    _wide_row(
-                        "Prefix",
-                        self._prefix_choice.widget,
-                        "The rosemary prefix Roblox runs in (ROSEMARY_PREFIX). In a Butter "
-                        "bottle's prefix, Roblox shares files with that bottle's programs and "
-                        "runs with the bottle's settings from Butter.",
-                    ),
-                    prefix_actions,
-                ],
+                [*self._rosemary_choice.rows, *self._prefix_choice.rows, self._prefix_status, self._bottle_note],
+                "The runners Butter has installed are listed here. To add one, install it "
+                "on Butter's Runners page, then reopen these settings. The prefix is where "
+                "Roblox runs (ROSEMARY_PREFIX). In a Butter bottle's prefix, Roblox shares "
+                "files with that bottle's programs and runs with the bottle's settings "
+                "from Butter.",
             ),
-            self._own_group(
-                "Prefix options",
-                [
-                    _row(
-                        "Home folder",
-                        self._prefix_home.widget,
-                        "ROSEMARY_PREFIX_HOME. With your home folder, the guest's "
-                        "/Users/<name> is your real home folder, so Roblox's files go there "
-                        "instead of into the prefix.",
-                    ),
-                    _row(
-                        "Process server",
-                        self._process_server,
-                        "ROSEMARY_SERVER. Lets rosemary's programs see each other. When nutmeg "
-                        "closes a running Roblox, it also stops the server (rosemary server --stop).",
-                    ),
-                ],
-            ),
+            self._own_group("Prefix options", [self._prefix_home.widget, self._process_server]),
             self._own_group(
                 "Display",
                 [
-                    _row(
-                        "Display server",
-                        self._video_driver.widget,
-                        "SDL_VIDEO_DRIVER, read by SDL, which rosemary opens its windows with. "
-                        "By default SDL uses Wayland when the compositor supports the fifo-v1 "
-                        "protocol, and X11 otherwise, which is XWayland on a Wayland desktop. "
-                        "Wayland needs a Wayland session.",
-                    ),
-                    _row("VSync", self._swap.widget, "ROSEMARY_SWAP_INTERVAL"),
-                    _row(
-                        "Presentation mode",
-                        self._presentation.widget,
-                        "ROSEMARY_METAL_PRESENTATION_MODE, the Vulkan present mode behind Metal. "
-                        "By default rosemary uses Mailbox, or FIFO when the driver has no Mailbox.",
-                    ),
+                    self._video_driver.widget,
+                    self._swap.widget,
+                    self._presentation.widget,
                     _row(
                         "Refresh rate (Hz)",
-                        self._refresh_rate,
                         "ROSEMARY_SCREEN_REFRESH_RATE: the refresh rate Roblox is told the display has.",
+                        self._refresh_rate,
                     ),
                 ],
             ),
             self._own_group(
                 "Runtime",
-                [
-                    _row("Title bar", self._decorations.widget, "ROSEMARY_DECORATIONS"),
-                    _row(
-                        "Menus",
-                        self._menu.widget,
-                        "ROSEMARY_MENU. With the window manager's title bar, menus go in a row below it.",
-                    ),
-                    _row(
-                        "Control works as Command in menu shortcuts",
-                        self._menu_ctrl,
-                        "ROSEMARY_MENU_CTRL",
-                    ),
-                    _row(
-                        "Keep the pointer inside the window",
-                        self._confine,
-                        "ROSEMARY_CONFINE_POINTER",
-                    ),
-                ],
+                [self._decorations.widget, self._menu.widget, self._menu_ctrl, self._confine],
                 "These set rosemary's environment variables, described in its docs/usage.md.",
             ),
             _group(
                 "Performance",
-                [
-                    _row(
-                        "Run with GameMode",
-                        self._gamemode,
-                        "Starts Roblox with gamemoderun, which asks Feral's GameMode to "
-                        "tune the system while Roblox runs." + _missing("gamemoderun"),
-                    ),
-                    _row(
-                        "Show the MangoHud overlay",
-                        self._mangohud,
-                        "Starts Roblox with mangohud, which draws the frame rate and other "
-                        "statistics over the game." + _missing("mangohud"),
-                    ),
-                    _wide_row(
-                        "Wrapper command",
-                        self._wrapper,
-                        "Starts Roblox through other programs, written like Steam's launch "
-                        "options: %command% stands for rosemary and its arguments, as in "
-                        "gamescope -f -- %command%. Without %command%, the command goes in "
-                        "front. NAME=value words at the start set environment variables. "
-                        "GameMode and MangoHud run inside it.",
-                    ),
-                ],
+                [self._gamemode, self._mangohud],
                 "These also apply in a Butter bottle's prefix, which has no settings for them.",
+            ),
+            _group(
+                "Wrapper command",
+                [self._wrapper],
+                "Starts Roblox through other programs, written like Steam's launch "
+                "options: %command% stands for rosemary and its arguments, as in "
+                "gamescope -f -- %command%. Without %command%, the command goes in "
+                "front. NAME=value words at the start set environment variables. "
+                "GameMode and MangoHud run inside it. It also applies in a Butter bottle's prefix.",
             ),
             self._own_group(
                 "Emulation",
-                [
-                    _row(
-                        "Dead flag elimination",
-                        self._dead_flags,
-                        "ROSEMARY_DEAD_FLAGS. rosemary's docs warn that it may have semantic "
-                        "accuracy bugs.",
-                    ),
-                    _row("Native call return", self._call_return, "ROSEMARY_CALL_RETURN"),
-                ],
+                [self._dead_flags, self._call_return],
                 "Only used when rosemary recompiles the x86_64 build.",
             ),
             self._own_group(
@@ -511,108 +450,86 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _flags_page(self) -> Gtk.Widget:
         self._flags = FlagEditor()
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        _margins(box, 18)
-        box.append(
-            _label(
-                "FastFlags are written to Roblox.app/Contents/MacOS/ClientSettings/"
-                "ClientAppSettings.json before each launch. Roblox decides which flags it "
-                "applies. A new flag's type follows its name prefix (FFlag, FInt, FString) "
-                "until you choose one.",
-                dim=True,
-            )
+        group = _group(
+            "FastFlags",
+            [self._flags],
+            "FastFlags are written to Roblox.app/Contents/MacOS/ClientSettings/"
+            "ClientAppSettings.json before each launch. Roblox decides which flags it "
+            "applies. A new flag's type follows its name prefix (FFlag, FInt, FString) "
+            "until you choose one.",
         )
-        self._flags.set_vexpand(True)
-        box.append(self._flags)
-        return box
+        # A preferences page is at most 600 pixels wide, which cuts flag names
+        # short; this page is laid out like one, but wider.
+        for side in ("top", "bottom", "start", "end"):
+            getattr(group, f"set_margin_{side}")(24 if side in ("top", "bottom") else 12)
+        clamp = Adw.Clamp(child=group, maximum_size=960, tightening_threshold=600)
+        return Gtk.ScrolledWindow(child=clamp, hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
 
-    def _desktop_group(self) -> list[Gtk.Widget]:
-        self._entries_state = _label("")
+    def _desktop_group(self) -> Adw.PreferencesGroup:
+        self._entries_state = _property("Menu entries")
         if paths.in_flatpak():
             # Flatpak exports the entries and registers the links; which
             # program the host opens them with cannot be seen from inside.
-            self._handler_labels = {}
-            command = _label(desktop.FLATPAK_DEFAULT_COMMAND)
-            command.set_selectable(True)
-            return [
-                _group(
-                    "Desktop",
-                    [
-                        _row("Menu entries", self._entries_state),
-                        _wide_row(
-                            "If another program opens Roblox links",
-                            command,
-                            "Run this in a terminal, outside the Flatpak, to make nutmeg open them.",
-                        ),
-                    ],
-                    "The Flatpak adds Roblox and nutmeg Settings to the application menu, and "
-                    "opens roblox-player: and roblox: links with nutmeg, so that Play on "
-                    "roblox.com starts Roblox through nutmeg. The first launch gives the Roblox "
-                    "entry Roblox's icon.",
-                )
-            ]
-        self._handler_labels = {mime: _label("") for mime in desktop.MIME_TYPES}
-        install = Gtk.Button(label="Install")
-        install.add_css_class("suggested-action")
-        install.connect("clicked", lambda _b: self._install_desktop())
-        remove = Gtk.Button(label="Remove")
-        remove.connect("clicked", lambda _b: self._uninstall_desktop())
-        rows = [_row("Menu entries", self._entries_state)]
-        for mime, label in self._handler_labels.items():
-            scheme = mime.split("/", 1)[1]
-            rows.append(_row(f"{scheme}: links open with", label))
-        return [
-            _group(
+            self._handler_rows = {}
+            copy = Gtk.Button(icon_name="edit-copy-symbolic", tooltip_text="Copy")
+            copy.add_css_class("flat")
+            copy.connect("clicked", lambda _b: self._copy(desktop.FLATPAK_DEFAULT_COMMAND))
+            return _group(
                 "Desktop",
-                rows,
-                "Adds Roblox and nutmeg Settings to the application menu, and makes nutmeg "
-                "open roblox-player: and roblox: links, so that Play on roblox.com starts "
-                "Roblox through nutmeg.",
-            ),
-            _buttons(install, remove),
-        ]
+                [
+                    self._entries_state,
+                    _property(
+                        "If another program opens Roblox links, run this in a terminal, "
+                        "outside the Flatpak, to make nutmeg open them",
+                        desktop.FLATPAK_DEFAULT_COMMAND,
+                        copy,
+                    ),
+                ],
+                "The Flatpak adds Roblox and nutmeg Settings to the application menu, and "
+                "opens roblox-player: and roblox: links with nutmeg, so that Play on "
+                "roblox.com starts Roblox through nutmeg. The first launch gives the Roblox "
+                "entry Roblox's icon.",
+            )
+        self._handler_rows = {
+            mime: _property(f"{mime.split('/', 1)[1]}: links open with") for mime in desktop.MIME_TYPES
+        }
+        buttons = Gtk.Box(spacing=8, valign=Gtk.Align.END)
+        buttons.append(_button("Remove", self._uninstall_desktop))
+        buttons.append(_button("Install", self._install_desktop, "suggested-action"))
+        return _group(
+            "Desktop",
+            [self._entries_state, *self._handler_rows.values()],
+            "Adds Roblox and nutmeg Settings to the application menu, and makes nutmeg "
+            "open roblox-player: and roblox: links, so that Play on roblox.com starts "
+            "Roblox through nutmeg.",
+            buttons,
+        )
 
     def _integration_page(self) -> Gtk.Widget:
-        self._discord = Gtk.Switch()
-        self._auto_update = Gtk.Switch()
+        self._discord = _switch(
+            "Show the game you are playing on Discord",
+            "nutmeg follows Roblox's log and sets your activity in the Discord app "
+            "on this computer: the game's name, creator and icon, how long you have "
+            "been playing, and a button to the game's page. It is visible wherever "
+            "Discord shows your activity.",
+        )
+        self._auto_update = _switch(
+            "Update nutmeg automatically",
+            "When Roblox is started from the browser, the menu or the command line, "
+            "nutmeg first installs its newest release from GitHub, if there is a newer "
+            "one, and starts again on it. " + updater.installation().description,
+        )
         # Only a newer .flatpak updates the Flatpak.
         self._auto_update.set_sensitive(not paths.in_flatpak())
-        logs = Gtk.Button(label="Open Logs Folder")
-        logs.connect("clicked", lambda _b: self._open_logs())
         return _page(
-            *self._desktop_group(),
-            _group(
-                "Discord",
-                [
-                    _row(
-                        "Show the game you are playing on Discord",
-                        self._discord,
-                        "nutmeg follows Roblox's log and sets your activity in the Discord app "
-                        "on this computer: the game's name, creator and icon, how long you have "
-                        "been playing, and a button to the game's page. It is visible wherever "
-                        "Discord shows your activity.",
-                    ),
-                ],
-            ),
+            self._desktop_group(),
+            _group("Discord", [self._discord]),
             _group(
                 "Logs",
-                [_row("Folder", _label(str(paths.logs_dir())))],
+                [_property("Folder", str(paths.logs_dir()), _button("Open", self._open_logs))],
                 "Each launch writes one log with nutmeg's steps and everything rosemary and Roblox print.",
             ),
-            _buttons(logs),
-            _group(
-                "nutmeg",
-                [
-                    _row("Version", _label(__version__)),
-                    _row(
-                        "Update nutmeg automatically",
-                        self._auto_update,
-                        "When Roblox is started from the browser, the menu or the command line, "
-                        "nutmeg first installs its newest release from GitHub, if there is a newer "
-                        "one, and starts again on it. " + updater.installation().description,
-                    ),
-                ],
-            ),
+            _group("nutmeg", [_row("Version", None, _value(__version__)), self._auto_update]),
         )
 
     # Moving settings between the widgets and a Config.
@@ -679,12 +596,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return config
 
     def _say(self, text: str, error: bool = False) -> None:
-        self._message.set_text(text)
-        self._message.set_visible(bool(text))
+        """Show an error in the banner, which stays until it is dismissed or
+        the settings are saved, or other text as a toast."""
         if error:
-            self._message.add_css_class("error")
-        else:
-            self._message.remove_css_class("error")
+            self._message.set_title(text)
+            self._message.set_revealed(True)
+        elif text:
+            dialogs.toast(self._toasts, text)
+
+    def _copy(self, text: str) -> None:
+        self.get_clipboard().set_content(
+            Gdk.ContentProvider.new_for_value(GObject.Value(GObject.TYPE_STRING, text))
+        )
+        self._say("Copied to the clipboard.")
 
     def _save(self) -> Optional[Config]:
         """Save what the window shows. Returns the settings, or None when they
@@ -703,6 +627,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             self._saved = config
             self._must_save = False
             self._say("Settings saved.")
+        self._message.set_revealed(False)
         self._refresh()
         return config
 
@@ -729,6 +654,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "Some settings have changed since they were last saved.",
             [("save", "Save"), ("discard", "Discard"), ("cancel", "Cancel")],
             answered,
+            destructive=("discard",),
         )
         return True
 
@@ -740,7 +666,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             text = f"{installed.label} ({installed.arch})"
         else:
             text = "Not installed. Roblox is downloaded the first time it is launched."
-        self._installed.set_text(text)
+        self._installed.set_subtitle(text)
         self._refresh_prefix()
         for button in (self._launch_button, self._update_button, self._reinstall_button):
             button.set_sensitive(not self._busy)
@@ -759,7 +685,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         else:
             base = rosemary.prefix_base_arch(prefix)
             text = f"Created, with the {base} Darwin base." if base else "Created, without a Darwin base."
-        self._prefix_status.set_text(text)
+        self._prefix_status.set_subtitle(text)
         found = butter.bottle_for_prefix(prefix) if prefix.is_absolute() else None
         for group in self._own_groups:
             group.set_sensitive(found is None)
@@ -782,45 +708,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _refresh_integration(self) -> None:
         if paths.in_flatpak():
-            self._entries_state.set_text("Added by the Flatpak")
+            self._entries_state.set_subtitle("Added by the Flatpak")
         else:
-            self._entries_state.set_text("Installed" if desktop.installed() else "Not installed")
-        for mime, label in self._handler_labels.items():
-            label.set_text(desktop.default_handler(mime) or "Nothing")
+            self._entries_state.set_subtitle("Installed" if desktop.installed() else "Not installed")
+        for mime, row in self._handler_rows.items():
+            row.set_subtitle(desktop.default_handler(mime) or "Nothing")
 
     # Actions.
-
-    def _browse(self, entry: Gtk.Entry, folder: bool, title: str) -> None:
-        def chosen(path: Optional[str]) -> None:
-            if path:
-                entry.set_text(path)
-
-        if hasattr(Gtk, "FileDialog"):
-            dialog = Gtk.FileDialog(title=title, modal=True)
-
-            def finished(source, result) -> None:
-                try:
-                    picked = source.select_folder_finish(result) if folder else source.open_finish(result)
-                except GLib.Error:
-                    return
-                chosen(picked.get_path() if picked is not None else None)
-
-            if folder:
-                dialog.select_folder(self, None, finished)
-            else:
-                dialog.open(self, None, finished)
-            return
-        action = Gtk.FileChooserAction.SELECT_FOLDER if folder else Gtk.FileChooserAction.OPEN
-        chooser = Gtk.FileChooserNative.new(title, self, action, "_Select", "_Cancel")
-
-        def response(native, answer) -> None:
-            if answer == Gtk.ResponseType.ACCEPT and native.get_file() is not None:
-                chosen(native.get_file().get_path())
-            self._chooser = None
-
-        chooser.connect("response", response)
-        self._chooser = chooser  # Kept alive until it answers.
-        chooser.show()
 
     def _launch(self, start: bool) -> None:
         if self._save() is None:
@@ -837,7 +731,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         what it returned, or the error it raised."""
         self._busy = True
         self._refresh()
-        self._say(working)
+        self._working = dialogs.toast(self._toasts, working, timeout=0)
 
         def run() -> None:
             try:
@@ -853,7 +747,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def finished(output: str, failed: bool) -> bool:
             self._busy = False
             self._refresh()
-            self._say("")
+            if self._working is not None:
+                self._working.dismiss()
+                self._working = None
             if show_output or failed:
                 dialogs.inform(self, title + (" failed" if failed else ""), output.strip() or "Done.")
             else:
@@ -890,6 +786,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "and data in the prefix are kept.",
             [("remove", "Remove"), ("cancel", "Cancel")],
             answered,
+            destructive=("remove",),
         )
 
     def _prefix_tools(self) -> Optional[tuple[Config, Path, str]]:

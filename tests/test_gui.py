@@ -22,12 +22,18 @@ try:
     import gi
 
     gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
     gi.require_version("Graphene", "1.0")
-    from gi.repository import GLib, Graphene, Gtk
+    from gi.repository import Adw, GLib, Graphene, Gtk
 
-    HAVE_DISPLAY = Gtk.init_check()
+    # Broadway's backend says it started even when it has no server.
+    HAVE_DISPLAY = Gtk.init_check() and Gtk.Settings.get_default() is not None
 except (ImportError, ValueError):
     HAVE_DISPLAY = False
+
+if HAVE_DISPLAY:
+    # Dialogs then open and close at once, so the tests need not wait for them.
+    Gtk.Settings.get_default().set_property("gtk-enable-animations", False)
 
 if HAVE_DISPLAY:
     from nutmeg.ui.app import Application
@@ -68,9 +74,14 @@ def toplevels() -> list:
 
 
 def dialog_titled(title: str):
+    """The dialog open with `title`, in any window, or None. A dialog is
+    inside the window it was opened over, or a window of its own."""
     for window in toplevels():
-        if window.get_title() == title and window.get_visible():
-            return window
+        if not window.get_visible():
+            continue
+        for dialog in find_all(window, Adw.Dialog):
+            if dialog.get_title() == title:
+                return dialog
     return None
 
 
@@ -100,18 +111,22 @@ def find(widget, kind):
     return find_all(widget, kind)[0]
 
 
-def click(window, label: str) -> None:
-    for button in buttons(window):
-        if button.get_label() == label:
+def click(widget, label: str) -> None:
+    """Click the button in `widget` labelled `label`, or with that tooltip
+    if it shows an icon."""
+    for button in buttons(widget):
+        if label in (button.get_label(), button.get_tooltip_text()):
             button.emit("clicked")
             return
-    raise AssertionError(f"no {label!r} button in {window.get_title()!r}")
+    raise AssertionError(f"no {label!r} button in {widget!r}")
 
 
-def screenshot(window, name: str) -> None:
+def screenshot(widget, name: str) -> None:
+    """Save the window `widget` is in, dialogs included."""
     folder = os.environ.get("NUTMEG_SCREENSHOTS")
     if not folder:
         return
+    window = widget.get_root()
     pump(lambda: window.get_width() > 0, 5)
     pump(lambda: False, 0.3)
     width, height = window.get_width(), window.get_height()
@@ -162,7 +177,8 @@ class WindowTests(Sandbox):
         # A setting the extra variables may not hold is refused with a message.
         window._env_view.get_buffer().set_text("ROSEMARY_PREFIX=/x\n")
         click(window, "Save")
-        self.assertIn("Prefix setting", window._message.get_text())
+        self.assertTrue(window._message.get_revealed())
+        self.assertIn("Prefix setting", window._message.get_title())
         self.assertEqual(config_module.load(), saved)
 
         window.close()
@@ -179,8 +195,8 @@ class WindowTests(Sandbox):
             pump(lambda: window.get_mapped())
             window._stack.set_visible_child_name("integration")
             screenshot(window, "settings-integration-flatpak")
-            self.assertEqual(window._entries_state.get_text(), "Added by the Flatpak")
-            labels = [button.get_label() for button in buttons(window)]
+            self.assertEqual(window._entries_state.get_subtitle(), "Added by the Flatpak")
+            labels = [button.get_label() for button in buttons(window._stack.get_child_by_name("integration"))]
             self.assertNotIn("Install", labels)
             self.assertNotIn("Remove", labels)
             texts = [label.get_text() for label in find_all(window, Gtk.Label)]
@@ -195,9 +211,9 @@ class WindowTests(Sandbox):
         pump(lambda: window.get_mapped())
         window._stack.set_visible_child_name("rosemary")
         rosemary_choice, prefix_choice = window._rosemary_choice, window._prefix_choice
-        self.assertFalse(rosemary_choice.entry.get_parent().get_visible())
-        rosemary_choice.dropdown.set_selected(1)
-        prefix_choice.dropdown.set_selected(1)
+        self.assertFalse(rosemary_choice.entry.get_visible())
+        rosemary_choice.combo.set_selected(1)
+        prefix_choice.combo.set_selected(1)
         window._process_server.set_active(False)
         window._presentation.set("fifo")
         window._refresh_rate.set_text("75")
@@ -220,7 +236,7 @@ class WindowTests(Sandbox):
         self.assertFalse(saved.auto_update)
         self.assertEqual((saved.use_gamemode, saved.use_mangohud), (False, True))
         self.assertEqual(saved.wrapper_command, "gamescope -f -- %command%")
-        self.assertIn("Created", window._prefix_status.get_text())
+        self.assertIn("Created", window._prefix_status.get_subtitle())
         # The bottle's settings replace nutmeg's runtime settings, so those are greyed out.
         self.assertTrue(window._bottle_note.get_visible())
         self.assertIn("Roblox bottle's settings", window._bottle_note.get_text())
@@ -230,17 +246,17 @@ class WindowTests(Sandbox):
         self.assertTrue(window._mangohud.is_sensitive())
         self.assertTrue(window._wrapper.is_sensitive())
         screenshot(window, "settings-bottle")
-        prefix_choice.dropdown.set_selected(0)
+        prefix_choice.combo.set_selected(0)
         self.assertFalse(window._bottle_note.get_visible())
         self.assertTrue(window._swap.widget.is_sensitive())
-        prefix_choice.dropdown.set_selected(1)
+        prefix_choice.combo.set_selected(1)
 
         # Any other program goes in the entry under "Another program…".
         rosemary_choice.set("/opt/rosemary/target/release/rosemary")
-        self.assertTrue(rosemary_choice.entry.get_parent().get_visible())
+        self.assertTrue(rosemary_choice.entry.get_visible())
         window._refresh_rate.set_text("0")
         click(window, "Save")
-        self.assertIn("screen_refresh_rate", window._message.get_text())
+        self.assertIn("screen_refresh_rate", window._message.get_title())
         window._refresh_rate.set_text("")
         click(window, "Save")
         self.assertEqual(config_module.load().rosemary_path, "/opt/rosemary/target/release/rosemary")
@@ -250,9 +266,12 @@ class WindowTests(Sandbox):
         paths.config_file().write_text("{broken")
         window = SettingsWindow(self.app)
         window.present()
+        self.assertTrue(window._message.get_revealed())
+        self.assertIn("could not be read", window._message.get_title())
         screenshot(window, "settings-unreadable")
         click(window, "Save")
         self.assertEqual(config_module.load(), Config())
+        self.assertFalse(window._message.get_revealed())
 
     def test_flag_rows_types_and_errors(self):
         window = SettingsWindow(self.app)
@@ -273,7 +292,7 @@ class WindowTests(Sandbox):
         self.assertIn("FIntExample needs a whole number", editor._state.get_text())
         screenshot(window, "settings-flags-error")
         click(window, "Save")
-        self.assertIn("FIntExample needs a whole number", window._message.get_text())
+        self.assertIn("FIntExample needs a whole number", window._message.get_title())
         self.assertFalse(paths.config_file().exists())
         number.entry.set_text("-60")
         click(window, "Save")
@@ -391,9 +410,10 @@ class WindowTests(Sandbox):
         window = LaunchWindow(self.app, url=None, start=True, on_settings=lambda: None)
         window.present()
         title = "Roblox could not be started"
-        self.assertTrue(pump(lambda: any(w is not window and w.get_title() == title for w in toplevels())))
-        dialog = next(w for w in toplevels() if w is not window and w.get_title() == title)
-        screenshot(window, "launch-failed-window")
+        self.assertTrue(pump(lambda: dialog_titled(title) is not None))
+        dialog = dialog_titled(title)
+        self.assertIs(dialog.get_root(), window)
+        self.assertEqual(window._status.get_title(), title)
         screenshot(dialog, "launch-failed-dialog")
         # The suggested choice is rightmost.
         self.assertEqual([b.get_label() for b in buttons(dialog)], ["Open Log", "Close", "Open Settings"])
@@ -417,10 +437,22 @@ class WindowTests(Sandbox):
         self.assertTrue(pump(lambda: dialog_titled("Set up the rosemary prefix") is not None))
         click(dialog_titled("Set up the rosemary prefix"), "Continue without it")
         self.assertTrue(pump(lambda: window._button.get_label() == "Close", 30))
-        self.assertIn("is installed", window._status.get_text())
+        self.assertIn("is installed", window._status.get_title())
         screenshot(window, "update-done")
         click(window, "Close")
         self.assertTrue(pump(lambda: not window.get_visible()))
+
+    def test_a_dialog_without_a_window_is_a_window_of_its_own(self):
+        from nutmeg.ui import dialogs
+
+        answers = []
+        dialogs.choose(None, "Roblox could not be started", "No such link", [("close", "Close")], answers.append)
+        dialog = dialog_titled("Roblox could not be started")
+        self.assertIsNotNone(dialog)
+        self.assertIsInstance(dialog.get_root(), Gtk.Window)
+        screenshot(dialog, "error-alone")
+        click(dialog, "Close")
+        self.assertTrue(pump(lambda: answers == ["close"]))
 
     def _stop_fake_roblox(self) -> None:
         from nutmeg import processes

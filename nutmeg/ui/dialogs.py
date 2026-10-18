@@ -1,20 +1,36 @@
-"""A modal question window, built from a plain Gtk.Window so that it works the
-same on every GTK 4 release (Gtk.MessageDialog is deprecated since 4.10, and
-Gtk.AlertDialog only exists from 4.10)."""
+"""Questions and messages, shown as libadwaita alert dialogs inside the window
+they are about, and the helpers for opening files with other programs."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional
 
-from gi.repository import Gdk, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .. import paths
 
+# The response of a dialog closed without a choice, by Escape or by its
+# window closing. `on_answer` gets None for it.
+_CLOSED = "nutmeg-closed"
+
+
+def text_box(text: str, height: int, editable: bool = False) -> tuple[Gtk.TextView, Gtk.Widget]:
+    """A monospace text view in a scrolled frame `height` pixels high at
+    least. Returns the view and the frame."""
+    view = Gtk.TextView(editable=editable, cursor_visible=editable, monospace=True, accepts_tab=False)
+    view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR if not editable else Gtk.WrapMode.CHAR)
+    for side in ("top", "bottom", "left", "right"):
+        getattr(view, f"set_{side}_margin")(8)
+    view.get_buffer().set_text(text)
+    scroller = Gtk.ScrolledWindow(child=view, vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+    scroller.set_min_content_height(height)
+    return view, Gtk.Frame(child=scroller)
+
 
 def choose(
-    parent: Optional[Gtk.Window],
+    parent: Optional[Gtk.Widget],
     title: str,
     message: str,
     choices: list[tuple[str, str]],
@@ -22,109 +38,87 @@ def choose(
     detail: Optional[str] = None,
     extra: Optional[Gtk.Widget] = None,
     focus: Optional[Gtk.Widget] = None,
-) -> Gtk.Window:
-    """Show `message` with a button per (id, label) in `choices`, suggested one
-    first. `on_answer` gets the id clicked, or None if the window was closed
-    another way. `detail`, if given, is shown in a scrollable monospace box;
-    `extra`, if given, is placed above the buttons. `focus` is the widget that
-    starts with the keyboard focus, the suggested button by default."""
-    large = detail is not None or extra is not None
-    window = Gtk.Window(title=title, modal=True, resizable=large)
-    window.set_default_size(520 if large else 440, -1)
-    finished = False
-    parent_handler = 0
+    destructive: Iterable[str] = (),
+) -> Adw.AlertDialog:
+    """Show `message` in a dialog over `parent`'s window, with a button per
+    (id, label) in `choices`, suggested one first. `on_answer` gets the id
+    clicked, or None if the dialog was closed another way. `detail`, if given,
+    is shown in a scrollable monospace box; `extra`, if given, is placed above
+    the buttons. `focus` is the widget that starts with the keyboard focus,
+    the suggested button by default. The choices in `destructive` are marked
+    as such, and are never the default. Without a `parent`, the dialog is a
+    window of its own."""
+    dialog = Adw.AlertDialog(heading=title, body=message, title=title)
+    destructive = set(destructive)
+    # The suggested choice goes rightmost, as GNOME lays buttons out.
+    for index, (choice, label) in reversed(list(enumerate(choices))):
+        dialog.add_response(choice, label)
+        if choice in destructive:
+            dialog.set_response_appearance(choice, Adw.ResponseAppearance.DESTRUCTIVE)
+        elif index == 0:
+            dialog.set_response_appearance(choice, Adw.ResponseAppearance.SUGGESTED)
+    if choices and choices[0][0] not in destructive:
+        dialog.set_default_response(choices[0][0])
+    dialog.set_close_response(_CLOSED)
 
-    # With PyGObject, gtk_window_destroy() does not reliably lead to the
-    # "destroy" signal (it waits for the last reference, which Python holds),
-    # so the end of the question is taken from the click, from close-request,
-    # and from "unrealize", which a destroyed window always emits. For the same
-    # reason the parent's going away is watched here instead of relying on
-    # destroy-with-parent.
-    def finish(choice: Optional[str]) -> None:
-        nonlocal finished, parent_handler
+    if detail is not None or extra is not None:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        if detail is not None:
+            box.append(text_box(detail, 200)[1])
+        if extra is not None:
+            box.append(extra)
+        dialog.set_extra_child(box)
+    # Room for long text, from libadwaita 1.6.
+    if (detail is not None or extra is not None or len(message) > 200) and hasattr(dialog, "set_prefer_wide_layout"):
+        dialog.set_prefer_wide_layout(True)
+
+    chosen: Optional[str] = None
+    finished = False
+
+    def respond(_dialog: Adw.AlertDialog, choice: str) -> None:
+        nonlocal chosen
+        chosen = None if choice == _CLOSED else choice
+
+    # The answer is given once the dialog is gone: a window does not close
+    # while a dialog in it is still closing. A dialog whose window is
+    # destroyed under it gives no response, and is only unrealized.
+    def finish(_dialog: Adw.AlertDialog) -> None:
+        nonlocal finished
         if finished:
             return
         finished = True
-        if parent_handler:
-            parent.disconnect(parent_handler)
-            parent_handler = 0
 
         def call() -> bool:
-            on_answer(choice)
+            on_answer(chosen)
             return GLib.SOURCE_REMOVE
 
         # From the main loop afterwards, so that `on_answer` may close windows.
         GLib.idle_add(call)
 
-    if parent is not None:
-        window.set_transient_for(parent)
-
-        def parent_gone(_parent: Gtk.Window) -> None:
-            finish(None)
-            window.destroy()
-
-        parent_handler = parent.connect("unrealize", parent_gone)
-
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-    for side in ("top", "bottom", "start", "end"):
-        getattr(box, f"set_margin_{side}")(20)
-    heading = Gtk.Label(xalign=0, wrap=True)
-    heading.set_markup(f"<b><big>{GLib.markup_escape_text(title)}</big></b>")
-    box.append(heading)
-    if message:
-        body = Gtk.Label(label=message, xalign=0, wrap=True, selectable=True)
-        body.set_max_width_chars(64)
-        box.append(body)
-    if detail is not None:
-        view = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
-        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        view.get_buffer().set_text(detail)
-        scroller = Gtk.ScrolledWindow(child=view, vexpand=True)
-        scroller.set_min_content_height(200)
-        box.append(scroller)
-    if extra is not None:
-        box.append(extra)
-    buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
-    buttons.set_margin_top(8)
-    first = None
-    # The suggested choice goes rightmost, as GNOME lays buttons out.
-    for index, (choice, label) in reversed(list(enumerate(choices))):
-        button = Gtk.Button(label=label)
-        if index == 0:
-            button.add_css_class("suggested-action")
-            first = button
-
-        def clicked(_button: Gtk.Button, choice: str = choice) -> None:
-            finish(choice)
-            window.destroy()
-
-        button.connect("clicked", clicked)
-        buttons.append(button)
-    box.append(buttons)
-    window.set_child(box)
-
-    keys = Gtk.EventControllerKey()
-
-    def key_pressed(_controller, keyval: int, _keycode: int, _state) -> bool:
-        if keyval == Gdk.KEY_Escape:
-            window.close()
-            return True
-        return False
-
-    keys.connect("key-pressed", key_pressed)
-    window.add_controller(keys)
-    window.connect("close-request", lambda _w: finish(None) or False)
-    window.connect("unrealize", lambda _w: finish(None))
-    if first is not None:
-        window.set_default_widget(first)
-    if focus is not None or first is not None:
-        window.set_focus(focus or first)
-    window.present()
-    return window
+    dialog.connect("response", respond)
+    dialog.connect("closed", finish)
+    dialog.connect("unrealize", finish)
+    dialog.present(parent)
+    if focus is not None:
+        dialog.set_focus(focus)
+    return dialog
 
 
-def inform(parent: Optional[Gtk.Window], title: str, message: str, detail: Optional[str] = None) -> None:
-    choose(parent, title, message, [("close", "Close")], lambda _a: None, detail)
+def inform(parent: Optional[Gtk.Widget], title: str, message: str, detail: Optional[str] = None) -> Adw.AlertDialog:
+    return choose(parent, title, message, [("close", "Close")], lambda _a: None, detail)
+
+
+def toast(widget: Gtk.Widget, text: str, timeout: int = 3) -> Optional[Adw.Toast]:
+    """Show `text` briefly in the toast overlay `widget` is in, if any.
+    `timeout` 0 keeps it until it is dismissed."""
+    parent = widget
+    while parent is not None and not isinstance(parent, Adw.ToastOverlay):
+        parent = parent.get_parent()
+    if parent is None:
+        return None
+    shown = Adw.Toast(title=text, timeout=timeout, use_markup=False)
+    parent.add_toast(shown)
+    return shown
 
 
 def launch_context() -> Gio.AppLaunchContext:
@@ -149,3 +143,25 @@ def open_path(path: Path) -> Optional[str]:
     except GLib.Error as e:
         return f"{path}: {e.message}"
     return None
+
+
+def pick_file(
+    parent: Gtk.Widget, title: str, folder: bool, on_picked: Callable[[str], None]
+) -> None:
+    """Ask for a file, or with `folder` a folder, and pass its path to
+    `on_picked` if one is chosen."""
+    dialog = Gtk.FileDialog(title=title, modal=True)
+    window = parent if isinstance(parent, Gtk.Window) else parent.get_root()
+
+    def finished(source: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
+        try:
+            picked = source.select_folder_finish(result) if folder else source.open_finish(result)
+        except GLib.Error:
+            return
+        if picked is not None and picked.get_path():
+            on_picked(picked.get_path())
+
+    if folder:
+        dialog.select_folder(window, None, finished)
+    else:
+        dialog.open(window, None, finished)

@@ -1,11 +1,11 @@
-"""The GTK application."""
+"""The libadwaita application."""
 
 from __future__ import annotations
 
 import sys
 from typing import Optional
 
-from gi.repository import Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from .. import paths
 from . import dialogs
@@ -13,7 +13,7 @@ from .launch_window import LaunchWindow
 from .settings_window import SettingsWindow
 
 
-class Application(Gtk.Application):
+class Application(Adw.Application):
     def __init__(self, mode: str, url: Optional[str]):
         # Not unique: a launch from the browser must not be handed to a
         # settings window that happens to be open in another process.
@@ -26,10 +26,14 @@ class Application(Gtk.Application):
 
     def do_activate(self) -> None:
         if self._mode == "error":
-            window = dialogs.choose(
-                None, "Roblox could not be started", self._url or "", [("close", "Close")], lambda _c: None
+            # Without a window to show it in, the dialog is a window of its
+            # own, which the application does not know about: it is held
+            # open until the dialog is answered.
+            self.hold()
+            dialogs.choose(
+                None, "Roblox could not be started", self._url or "", [("close", "Close")],
+                lambda _choice: self.release(),
             )
-            window.set_application(self)
         elif self._mode == "settings":
             self._open_settings()
         else:

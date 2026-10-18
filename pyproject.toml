@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "A Roblox bootstrapper for Linux that runs the macOS client through rosemary"
 readme = "README.md"
 requires-python = ">=3.10"
-# PyGObject and GTK 4 come from the Linux distribution; see README.md.
+# PyGObject, GTK 4 and libadwaita come from the Linux distribution; see README.md.
 dependencies = []
 classifiers = [
     "Environment :: X11 Applications :: GTK",

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Build nutmeg's AppImage, which carries the Python, PyGObject and GTK 4 that
-nutmeg runs on, so that a desktop needs none of them installed to run it.
+"""Build nutmeg's AppImage, which carries the Python, PyGObject, GTK 4 and
+libadwaita that nutmeg runs on, so that a desktop needs none of them installed to run it.
 
     python3 scripts/build_appimage.py --version 0.2.0 --runtime runtime-x86_64 --out dist
 
 It is built on Ubuntu 24.04 from the system's own packages:
 
-    sudo apt-get install python3 python3-gi gir1.2-gtk-4.0 librsvg2-common \\
-        libglib2.0-bin squashfs-tools patchelf
+    sudo apt-get install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \\
+        librsvg2-common libglib2.0-bin squashfs-tools patchelf
 
 and so runs on systems with glibc 2.39 or newer. Run it with the system's
 python3, the one PyGObject is installed for. --runtime is the AppImage type 2
@@ -72,7 +72,7 @@ EXCLUDED = frozenset(
 )
 
 # The GObject namespaces nutmeg imports. The typelibs they depend on come too.
-NAMESPACES = ["GLib-2.0", "GObject-2.0", "Gio-2.0", "Gdk-4.0", "Gtk-4.0"]
+NAMESPACES = ["GLib-2.0", "GObject-2.0", "Gio-2.0", "Gdk-4.0", "Gtk-4.0", "Adw-1"]
 
 # Parts of the standard library nutmeg does not use.
 STDLIB_LEFT_OUT = {
@@ -95,7 +95,7 @@ APPRUN_VARS = (
 # unset), and nutmeg puts them back for every program it starts
 # (paths.host_env). The fields are filled in by write_apprun.
 _APPRUN = """#!/bin/sh
-# Runs nutmeg on the Python and GTK 4 in this AppImage.
+# Runs nutmeg on the Python, GTK 4 and libadwaita in this AppImage.
 set -e
 here={here}
 vars="{names}"

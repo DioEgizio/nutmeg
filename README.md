@@ -3,7 +3,7 @@
 nutmeg is a Roblox bootstrapper for Linux. It downloads the macOS Roblox
 client from Roblox's servers, keeps it up to date, and starts it through
 [rosemary](https://github.com/microlift/rosemary), which runs macOS programs on
-Linux. It is written in Python with a GTK 4 interface.
+Linux. It is written in Python with a GTK 4 and libadwaita interface.
 
 rosemary is experimental, and so is running Roblox on it. nutmeg installs and
 starts the client the way rosemary's documentation describes; whether Roblox
@@ -21,10 +21,11 @@ then works depends on the rosemary build you use.
   also needs SDL 3.4.0 or newer (`libSDL3.so.0`); Butter's official builds
   bring their own.
 - Python 3.10 or newer.
-- PyGObject and GTK 4 (nutmeg is tested with GTK 4.14). On Debian and Ubuntu:
-  `sudo apt install python3-gi gir1.2-gtk-4.0`. On Fedora:
-  `sudo dnf install python3-gobject gtk4`. On Arch Linux:
-  `sudo pacman -S python-gobject gtk4`.
+- PyGObject, GTK 4 and libadwaita 1.5 or newer (nutmeg is tested with GTK 4.14
+  and libadwaita 1.5). On Debian and Ubuntu:
+  `sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1`. On Fedora:
+  `sudo dnf install python3-gobject gtk4 libadwaita`. On Arch Linux:
+  `sudo pacman -S python-gobject gtk4 libadwaita`.
 - xdg-utils, so that nutmeg can open `roblox-player:` links from the browser.
 
 The Flatpak needs none of the Python, PyGObject and xdg-utils parts, and the
@@ -112,7 +113,7 @@ flatpak uninstall io.github.frolleks.Nutmeg
 
 ### With the AppImage
 
-The AppImage carries its own Python, PyGObject and GTK 4, from Ubuntu 24.04,
+The AppImage carries its own Python, PyGObject, GTK 4 and libadwaita, from Ubuntu 24.04,
 so it runs on distributions with glibc 2.39 or newer: Ubuntu 24.04, Debian 13,
 Fedora 40 and later ones. On older ones, use the Flatpak. Download the
 `.AppImage` for your computer from the Releases page, put it somewhere it can
@@ -579,7 +580,7 @@ the machine from
 [AppImage's type2-runtime releases](https://github.com/AppImage/type2-runtime/releases):
 
 ```sh
-sudo apt install python3-gi gir1.2-gtk-4.0 librsvg2-common libglib2.0-bin squashfs-tools patchelf
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 librsvg2-common libglib2.0-bin squashfs-tools patchelf
 curl -fLo runtime https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
 /usr/bin/python3 scripts/build_appimage.py --version 1.0.1.dev1 --runtime runtime --out dist
 ```

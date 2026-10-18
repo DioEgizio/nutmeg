@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import threading
 import traceback
+from importlib import resources
 from pathlib import Path
 from typing import Callable, Optional
 
-from gi.repository import GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from .. import config as config_module
 from ..errors import Cancelled, NutmegError
@@ -72,7 +73,16 @@ class GtkFrontend:
         return result[0]
 
 
-class LaunchWindow(Gtk.ApplicationWindow):
+def _icon() -> Optional[Gdk.Paintable]:
+    """nutmeg's icon, or None where no SVG loader is installed."""
+    try:
+        data = (resources.files("nutmeg") / "data" / "nutmeg.svg").read_bytes()
+        return Gdk.Texture.new_from_bytes(GLib.Bytes.new(data))
+    except (OSError, GLib.Error):
+        return None
+
+
+class LaunchWindow(Adw.ApplicationWindow):
     """Runs a `Launcher` on a worker thread and shows how it is going.
 
     With `start`, Roblox is started and the window closes once it is running;
@@ -90,9 +100,10 @@ class LaunchWindow(Gtk.ApplicationWindow):
         on_settings: Optional[Callable[[], None]] = None,
         relaunch: Optional[list[str]] = None,
     ):
-        super().__init__(application=application, resizable=False)
+        # Resizable, because libadwaita shows a non-resizable window's dialogs
+        # as windows of their own.
+        super().__init__(application=application)
         self.set_title("Roblox" if start else "Update Roblox")
-        self.set_default_size(440, -1)
         if parent is not None:
             self.set_transient_for(parent)
             self.set_modal(True)
@@ -103,19 +114,30 @@ class LaunchWindow(Gtk.ApplicationWindow):
         self._relaunch = relaunch
         self._working = True
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        for side in ("top", "bottom", "start", "end"):
-            getattr(box, f"set_margin_{side}")(24)
-        self._status = Gtk.Label(xalign=0, wrap=True)
-        self._detail = Gtk.Label(xalign=0, wrap=True, selectable=False)
-        self._detail.add_css_class("dim-label")
-        self._bar = Gtk.ProgressBar()
-        self._button = Gtk.Button(label="Cancel", halign=Gtk.Align.END)
+        self._status = Adw.StatusPage(vexpand=True)
+        self._status.add_css_class("compact")
+        icon = _icon()
+        if icon is not None:
+            self._status.set_paintable(icon)
+        else:
+            self._status.set_icon_name("applications-games-symbolic")
+        self._bar = Gtk.ProgressBar(width_request=280, halign=Gtk.Align.CENTER)
+        self._button = Gtk.Button(label="Cancel", halign=Gtk.Align.CENTER)
+        self._button.add_css_class("pill")
         self._button.connect("clicked", lambda _b: self.close())
-        for widget in (self._status, self._detail, self._bar, self._button):
-            box.append(widget)
-        self._button.set_margin_top(6)
-        self.set_child(box)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        box.append(self._bar)
+        box.append(self._button)
+        self._status.set_child(box)
+
+        header = Adw.HeaderBar(show_title=False)
+        view = Adw.ToolbarView(content=self._status)
+        view.add_top_bar(header)
+        # The questions asked on the way are dialogs inside this window,
+        # which libadwaita shows over it from 450×360 up, and squeezes into a
+        # sheet at its bottom below that.
+        view.set_size_request(480, 420)
+        self.set_content(view)
         self.show_status("Starting…" if start else "Checking for Roblox updates…", "")
         self._pulse = GLib.timeout_add(120, self._tick)
         self._indeterminate = True
@@ -127,9 +149,9 @@ class LaunchWindow(Gtk.ApplicationWindow):
     # Main-thread display.
 
     def show_status(self, text: str, detail: str) -> None:
-        self._status.set_markup(f"<b>{GLib.markup_escape_text(text)}</b>")
-        self._detail.set_text(detail)
-        self._detail.set_visible(bool(detail))
+        self._status.set_title(text)
+        # The description is markup.
+        self._status.set_description(GLib.markup_escape_text(detail) if detail else None)
 
     def show_progress(self, fraction: Optional[float]) -> None:
         self._indeterminate = fraction is None
@@ -216,7 +238,8 @@ class LaunchWindow(Gtk.ApplicationWindow):
     def _done_failed(self, message: str, settings: bool, log: Optional[Path], tail: str) -> bool:
         self._finish()
         self.show_status("Roblox could not be started" if self._start else "Roblox could not be updated", "")
-        self._bar.set_fraction(0.0)
+        self._bar.set_visible(False)
+        self._button.set_visible(False)
         choices = [("close", "Close")]
         if log is not None:
             choices.append(("log", "Open Log"))
